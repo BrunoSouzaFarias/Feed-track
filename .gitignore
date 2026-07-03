@@ -47,6 +47,18 @@ coverage/
 .vscode/*.code-workspace
 .history/
 
+# Agent / tooling folders that should not be shipped with the app
+.agents/
+.claude/
+.codex-plugin/
+.cursor-plugin/
+.opencode/
+.pi/
+skills/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+
 # Common secret/key formats
 *.pem
 *.key
