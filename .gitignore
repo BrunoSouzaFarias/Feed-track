@@ -27,3 +27,39 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local Firebase / credentials and caches
+.firebase/
+firebase_admin.*.json
+firebase-adminsdk*.json
+serviceAccountKey*.json
+
+# Vite / build caches
+.vite/
+.cache/
+/.parcel-cache/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# OS / editor temp
+.vscode/*.code-workspace
+.history/
+
+# Common secret/key formats
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.jks
+*.keystore
+
+# Mobile build files
+google-services.json
+GoogleService-Info.plist
+
+# NPM auth and lockfiles that may contain tokens (only if you want to ignore local overrides)
+.npmrc
+
