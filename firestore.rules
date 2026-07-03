@@ -1,0 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if the user is logged in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if the user is a supervisor
+    function isSupervisor() {
+      return isSignedIn() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'supervisor';
+    }
+
+    // Helper function to check if the document belongs to the logged-in user
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Users Collection rules
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isSupervisor();
+
+      // Self-registration must always create a 'technician' — only an
+      // existing supervisor can create a user with role 'supervisor'.
+      allow create: if isSupervisor() ||
+        (isOwner(userId) && request.resource.data.role == 'technician');
+
+      // Owners may update their own doc but MAY NOT change their own role
+      // (prevents a technician from self-escalating via a direct write).
+      // Supervisors may update anything, including role.
+      allow update: if isSupervisor() ||
+        (isOwner(userId) && request.resource.data.role == resource.data.role);
+
+      // Allow delete if supervisor
+      allow delete: if isSupervisor();
+    }
+
+    // Feedbacks Collection rules
+    match /feedbacks/{feedbackId} {
+      allow read: if isSupervisor() || (isSignedIn() && resource.data.technicianId == request.auth.uid);
+      allow create: if isSupervisor();
+      allow update: if isSupervisor() || (isSignedIn() && resource.data.technicianId == request.auth.uid);
+      allow delete: if isSupervisor();
+    }
+
+    // Self Assessments Collection rules
+    match /selfAssessments/{assessmentId} {
+      allow read: if isSupervisor() || (isSignedIn() && resource.data.technicianId == request.auth.uid);
+      // Allow create if the user is the technician submitting it, or if it is a supervisor
+      allow create: if isSupervisor() || (isSignedIn() && request.resource.data.technicianId == request.auth.uid);
+      allow update: if isSupervisor() || (isSignedIn() && resource.data.technicianId == request.auth.uid);
+      allow delete: if isSupervisor();
+    }
+
+    // Audit Logs Collection rules
+    match /auditLogs/{logId} {
+      allow read: if isSupervisor() || (isSignedIn() && resource.data.technicianId == request.auth.uid);
+      // Allow create of audit logs by the supervisor or by the user who signed it
+      allow create: if isSupervisor() || (isSignedIn() && request.resource.data.technicianId == request.auth.uid);
+      // Audit logs should be immutable - no updates or deletes allowed
+      allow update, delete: if false;
+    }
+  }
+}

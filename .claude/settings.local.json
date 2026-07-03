@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx skills *)",
+      "Bash(powershell -Command \"Get-ChildItem -Recurse -Depth 3 -Force | Select-Object FullName | ConvertTo-Csv -NoTypeInformation | Out-String\")",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npx firebase *)",
+      "Bash(npx vite *)"
+    ]
+  }
+}
