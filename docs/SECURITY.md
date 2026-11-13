@@ -28,7 +28,7 @@ Testes das regras: `npm run test:rules` (15 casos; contra as regras antigas, 8 f
 - [ ] **Cadastro público**: se o sistema é interno, restrinja por domínio (`VITE_ALLOWED_EMAIL_DOMAIN`, defesa em profundidade) **e** desative o auto-cadastro ou use uma *blocking function* / convites.
 - [ ] **E-mail verificado**: o app envia o e-mail de verificação, mas não bloqueia o acesso sem ele (evita travar contas existentes). Para exigir, adicione `request.auth.token.email_verified == true` às regras.
 - [ ] Backups/exportação agendada do Firestore e alertas de uso.
-- [ ] Monitoramento de erros (ex.: Sentry) — hoje erros só vão para o console.
+- [ ] Monitoramento: defina `VITE_ERROR_REPORT_URL` (ver `docs/DEPLOY.md`); sem ela, erros só vão para o console.
 
 ## Riscos residuais (conhecidos)
 1. **Badges e progresso do PDI** são gravados pelo cliente do técnico (as regras impedem remover itens, mas um técnico mal-intencionado pode marcar a própria meta como concluída ou se conceder badge). Para rigor total, mover essas escritas para Cloud Functions.

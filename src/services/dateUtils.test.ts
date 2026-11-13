@@ -34,3 +34,11 @@ describe('dateUtils', () => {
     expect(daysSince(new Date('2026-02-01T12:00:00Z'))).toBe(0);
   });
 });
+
+describe('datas civis (YYYY-MM-DD) não mudam de dia por fuso', () => {
+  it('tryParseDate/formatDate preservam o dia', () => {
+    const d = tryParseDate('2026-06-30')!;
+    expect([d.getFullYear(), d.getMonth(), d.getDate()]).toEqual([2026, 5, 30]);
+    expect(formatDate('2026-06-30')).toBe('30/06/2026');
+  });
+});

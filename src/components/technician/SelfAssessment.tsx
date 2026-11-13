@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { ClipboardList, Star, AlertCircle, Loader2 } from 'lucide-react';
 import type { User, SelfAssessment as SelfAssessmentType } from '../../types';
+import { useModalA11y } from '../../hooks/useModalA11y';
 import { newId } from '../../services/ids';
 import { userService } from '../../services/userService';
 import { Timestamp } from '../../firebase';
@@ -34,6 +35,7 @@ export default function SelfAssessment({ userProfile, onSuccess, onClose }: Self
   const [comments, setComments] = useState('');
   const [loading, setLoading] = useState(false);
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
+  const dialogRef = useModalA11y<HTMLDivElement>(onClose);
   const [checking, setChecking] = useState(true);
 
   const checkSubmission = useCallback(async () => {
@@ -117,6 +119,10 @@ export default function SelfAssessment({ userProfile, onSuccess, onClose }: Self
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
         transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Autoavaliação individual"
         className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 max-w-lg w-full shadow-2xl overflow-hidden max-h-[90vh] flex flex-col text-left"
       >
         {/* Header */}

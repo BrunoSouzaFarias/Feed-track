@@ -25,6 +25,7 @@ export default function App() {
         <Preloader onComplete={() => setShowPreloader(false)} />
       )}
       <CursorProvider>
+        <a href="#conteudo" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:rounded focus:bg-white focus:text-zinc-900 focus:shadow-lg">Pular para o conteúdo</a>
         <div className="noise-overlay" />
         <InstallPrompt />
         <AuthProvider>

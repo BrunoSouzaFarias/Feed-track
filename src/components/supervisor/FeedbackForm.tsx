@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { X } from 'lucide-react';
 import type { User, Feedback } from '../../types';
 import { FEEDBACK_AXES } from '../../types';
+import { useModalA11y } from '../../hooks/useModalA11y';
 import { Timestamp } from 'firebase/firestore';
 import { newId } from '../../services/ids';
 import { friendlyError } from '../../services/errors';
@@ -71,6 +72,8 @@ export default function FeedbackForm({ technicians, initialTechId, onClose, onSu
     // eslint-disable-next-line no-control-regex
     str.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
 
+  const dialogRef = useModalA11y<HTMLDivElement>(() => handleDiscard());
+
   const handleDiscard = () => {
     if (description.trim().length > 0) {
       const confirmed = window.confirm('Descartar este feedback? O texto digitado será perdido permanentemente.');
@@ -138,6 +141,7 @@ export default function FeedbackForm({ technicians, initialTechId, onClose, onSu
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
         transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
         className="will-change-transform-opacity relative w-full max-w-[620px] bg-white dark:bg-[#1e2023]/95 dark:backdrop-blur-xl border border-zinc-200 dark:border-zinc-800/80 rounded-lg shadow-2xl overflow-hidden max-h-[95vh] flex flex-col font-sans"
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="feedback-form-title"

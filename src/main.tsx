@@ -3,11 +3,15 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { getMissingFirebaseEnv, isMockBlocked } from './services/env'
+import { initMonitoring } from './services/monitoring'
+
+initMonitoring();
 
 const rootEl = document.getElementById('root')!;
 
 function renderFatal(title: string, detail: string) {
   rootEl.innerHTML = '';
+  rootEl.setAttribute('role', 'alert');
   const box = document.createElement('div');
   box.style.cssText = 'min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;padding:24px;text-align:center;background:#111316;color:#fafafa';
   const inner = document.createElement('div');

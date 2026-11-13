@@ -1,0 +1,37 @@
+# Deploy e operação
+
+## Variáveis de ambiente (`.env`, veja `.env.example`)
+| Variável | Obrigatória | Uso |
+|---|---|---|
+| `VITE_FIREBASE_API_KEY`, `_AUTH_DOMAIN`, `_PROJECT_ID`, `_APP_ID` (+ `_STORAGE_BUCKET`, `_MESSAGING_SENDER_ID`) | sim em produção | Firebase real. Sem elas, o build de produção **não sobe** (tela “Configuração ausente”). |
+| `VITE_FIREBASE_APPCHECK_SITE_KEY` | recomendada | Ativa o App Check (reCAPTCHA v3). |
+| `VITE_ALLOWED_EMAIL_DOMAIN` | opcional | Restringe o cadastro público a `@dominio` (defesa em profundidade). |
+| `VITE_ERROR_REPORT_URL` | opcional | Recebe erros não tratados (JSON, sem dados pessoais). **Adicione o host em `connect-src` da CSP** em `firebase.json`. |
+| `VITE_ALLOW_MOCK` | não | `true` libera o modo mock em produção (apenas demonstrações). |
+
+## Passo a passo
+```bash
+npm ci
+npm run ci                 # typecheck + lint + testes + build
+npm run test:rules         # regras do Firestore no emulador (requer Java)
+firebase deploy --only firestore:rules,firestore:indexes,hosting
+```
+O `firebase.json` já publica CSP, HSTS, `X-Frame-Options`, cache imutável para `/assets/**` e `no-cache` para `index.html` e `sw.js`.
+
+## Primeiro supervisor
+1. Crie a conta em `/register` (nasce como técnico).
+2. No console do Firestore, altere `users/{uid}.role` para `supervisor`.
+
+## Offline
+O cache offline é o do Firestore (IndexedDB, isolado por usuário). Escritas feitas offline são reenviadas ao reconectar; se o servidor as rejeitar (ex.: permissão), o usuário é avisado por toast. O cabeçalho mostra online/offline e quantas escritas estão pendentes.
+
+## Atualizações do app (PWA)
+HTML é buscado primeiro na rede, então um deploy novo chega na próxima navegação. Para forçar a limpeza de caches antigos, incremente `CACHE_VERSION` em `public/sw.js`.
+
+## Monitoramento
+Erros de renderização (`ErrorBoundary`), `window.onerror` e `unhandledrejection` passam por `src/services/monitoring.ts` (deduplicados, no máximo 10 por sessão). Sem `VITE_ERROR_REPORT_URL`, ficam só no console.
+
+## Solução de problemas
+- **“Configuração ausente” ao abrir o site**: faltam as variáveis `VITE_FIREBASE_*` no build.
+- **`permission-denied` ao salvar**: a regra negou (conta desativada, perfil inexistente ou campo não permitido). Rode `npm run test:rules` para ver o contrato esperado.
+- **Consulta de auditoria falha pedindo índice**: faça deploy de `firestore.indexes.json`.

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Users, UserPlus, Edit, Eye, Target, ToggleLeft, ToggleRight, X, Loader2, Mail, User as UserIcon, Trash2, Download } from 'lucide-react';
 import type { User, Feedback } from '../../types';
 import { userService } from '../../services/userService';
+import { useModalA11y } from '../../hooks/useModalA11y';
 import { validatePassword } from '../../services/passwordPolicy';
 import { friendlyError } from '../../services/errors';
 import { useAuth } from '../../hooks/useAuth';
@@ -148,13 +149,17 @@ export default function TeamManagement({
     }
   };
 
+  const addDialogRef = useModalA11y<HTMLDivElement>(() => setIsAddModalOpen(false), isAddModalOpen);
+  const editDialogRef = useModalA11y<HTMLDivElement>(() => setIsEditModalOpen(false), isEditModalOpen && !!editingTech);
+
   const renderAddModal = () => {
     if (!isAddModalOpen || typeof document === 'undefined') return null;
     return createPortal(
       <div className="fixed inset-0 z-55 flex items-center justify-center p-4 bg-zinc-950/80 backdrop-blur-xs">
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 max-w-md w-full shadow-2xl relative text-left">
+        <div ref={addDialogRef} role="dialog" aria-modal="true" aria-label="Novo colaborador" className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 max-w-md w-full shadow-2xl relative text-left">
           <button
             onClick={() => setIsAddModalOpen(false)}
+            aria-label="Fechar"
             className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -269,9 +274,10 @@ export default function TeamManagement({
     if (!isEditModalOpen || !editingTech || typeof document === 'undefined') return null;
     return createPortal(
       <div className="fixed inset-0 z-55 flex items-center justify-center p-4 bg-zinc-950/80 backdrop-blur-xs">
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 max-w-md w-full shadow-2xl relative text-left">
+        <div ref={editDialogRef} role="dialog" aria-modal="true" aria-label="Editar colaborador" className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 max-w-md w-full shadow-2xl relative text-left">
           <button
             onClick={() => setIsEditModalOpen(false)}
+            aria-label="Fechar"
             className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer"
           >
             <X className="w-5 h-5" />

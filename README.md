@@ -44,6 +44,7 @@ npm run ci           # typecheck + lint + test + build
 ```
 
 ## Documentação
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) — variáveis, deploy, offline, PWA, monitoramento e solução de problemas.
 - [`docs/SECURITY.md`](docs/SECURITY.md) — modelo de ameaças, controles, riscos residuais e checklist de deploy.
 - [`docs/PRIVACY.md`](docs/PRIVACY.md) — LGPD: dados tratados, retenção e direitos do titular.
 - [`docs/subagent/`](docs/subagent) — especificações por funcionalidade.

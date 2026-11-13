@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Target, Calendar, PlusCircle, Loader2, ArrowRight } from 'lucide-react';
 import type { User, PDIGoal } from '../../types';
 import { Timestamp } from 'firebase/firestore';
+import { formatDate } from '../../services/dateUtils';
 import { userService } from '../../services/userService';
 import { newId } from '../../services/ids';
 import { friendlyError } from '../../services/errors';
@@ -184,7 +185,7 @@ export default function PDIManager({ technicians, onUpdate }: PDIManagerProps) {
 
                         <div className="flex justify-between items-center text-xs mt-1 border-t border-zinc-100 dark:border-zinc-800/80 pt-2.5">
                           <span className="flex items-center gap-1 text-zinc-500">
-                            <Calendar className="w-3.5 h-3.5" /> Prazo: {goal.deadline}
+                            <Calendar className="w-3.5 h-3.5" /> Prazo: {formatDate(goal.deadline)}
                           </span>
                           <button
                             onClick={() => handleStatusChange(goal.id, goal.status)}

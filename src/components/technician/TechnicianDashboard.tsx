@@ -140,7 +140,7 @@ export default function TechnicianDashboard() {
 
       <Header />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left relative z-10">
+      <main id="conteudo" tabIndex={-1} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left relative z-10">
         
         {/* Welcome block */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
@@ -280,8 +280,7 @@ export default function TechnicianDashboard() {
                     ? 'text-liberty dark:text-liberty-sky'
                     : 'text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-300'
                 }`}
-                role="tab"
-                aria-selected={isActive}
+                aria-current={isActive ? 'page' : undefined}
               >
                 <Icon className="w-4.5 h-4.5 z-10" />
                 <span className="z-10">{tab.label}</span>

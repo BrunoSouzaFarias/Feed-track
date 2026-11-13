@@ -27,6 +27,12 @@ export function tryParseDate(val: TimestampLike): Date | null {
     if (typeof o._seconds === 'number') return new Date(o._seconds * 1000);
     return null;
   }
+  // 'YYYY-MM-DD' (prazos) é data CIVIL: interpretar no fuso local, nunca em UTC
+  // (new Date('2026-06-30') viraria 29/06 às 21h no Brasil).
+  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
+    const d = parseLocalDate(val);
+    return isNaN(d.getTime()) ? null : d;
+  }
   const d = new Date(val as string);
   return isNaN(d.getTime()) ? null : d;
 }

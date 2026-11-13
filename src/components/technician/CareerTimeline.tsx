@@ -117,7 +117,7 @@ export default function CareerTimeline({ userProfile, feedbacks }: CareerTimelin
           type: 'pdi_goal',
           date: parseDate(g.createdAt),
           title: `Meta de PDI Definida: ${g.title}`,
-          subtitle: `Prazo acordado: ${g.deadline}`,
+          subtitle: `Prazo acordado: ${parseLocalDate(g.deadline).toLocaleDateString("pt-BR")}`,
           description: g.description,
           meta: {
             goalStatus: g.status,
