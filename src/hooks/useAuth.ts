@@ -19,6 +19,7 @@ import { AppError, friendlyError } from '../services/errors';
 import { newId } from '../services/ids';
 import { sessionHint } from '../services/sessionHint';
 import { purgeLegacyLocalData } from '../services/legacyCleanup';
+import { scope } from '../services/scope';
 import { validatePassword } from '../services/passwordPolicy';
 import toast from 'react-hot-toast';
 
@@ -80,7 +81,9 @@ function newProfile(uid: string, name: string, email: string, team: Team, positi
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUserState] = useState<User | null>(null);
+  // O escopo é definido SÍNCRONO junto com o usuário: effects dos filhos (que já buscam dados) rodam antes dos do pai.
+  const setUser = (u: User | null) => { scope.set(u); setUserState(u); };
   // Em modo mock sem sessão não há nada a restaurar: já nasce "carregado" (sem setState síncrono no effect).
   const [loading, setLoading] = useState(() => !(isFirebaseMock && !sessionStorage.getItem(MOCK_SESSION_KEY)));
   const [emailVerified, setEmailVerified] = useState(true);

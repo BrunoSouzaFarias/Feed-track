@@ -15,7 +15,8 @@
     "rules:strict": "node scripts/gen-strict-rules.mjs",
     "functions:typecheck": "npm --prefix functions run typecheck",
     "test:functions": "npm --prefix functions run build && firebase emulators:exec --only auth,firestore,functions --project demo-feed-track \"vitest run --config vitest.functions.config.ts\"",
-    "setup:console": "node scripts/firebase-console-setup.mjs"
+    "setup:console": "node scripts/firebase-console-setup.mjs",
+    "backfill:team": "node scripts/backfill-team.mjs"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",

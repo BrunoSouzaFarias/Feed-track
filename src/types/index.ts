@@ -7,6 +7,8 @@ export interface User {
   role: 'supervisor' | 'technician';
   team: 'back-office' | 'teleservice';
   position: string; // cargo: "Agente N1", "Analista", etc.
+  /** Só para supervisores: se definido, gerencia APENAS esta equipe (ausente/null = todas). */
+  managedTeam?: 'back-office' | 'teleservice' | null;
   photoURL?: string;
   phone?: string;
   active: boolean;
@@ -20,6 +22,8 @@ export interface Feedback {
   technicianId: string;
   technicianName: string;
   supervisorId: string;
+  /** Equipe do colaborador (denormalizada no momento da criação; usada pelo escopo de supervisor). */
+  team: 'back-office' | 'teleservice';
   type: 'positive' | 'development';
   axis: string; // eixo/categoria
   description: string;
@@ -32,6 +36,7 @@ export interface Feedback {
 export interface SelfAssessment {
   id: string;
   technicianId: string;
+  team: 'back-office' | 'teleservice';
   period: string; // ex: "2026-Q2"
   scores: {
     communication: number; // 1-5
@@ -69,6 +74,7 @@ export interface AuditLog {
   entityId: string;
   technicianId: string;
   technicianName: string;
+  team: 'back-office' | 'teleservice';
   details: string;
   hash: string;
   signature: string;

@@ -9,6 +9,7 @@ import { auditService } from './auditService';
 import { offlineSyncService } from './offlineSyncService';
 import { hasMockCredential, setMockCredential } from './credentialUtils';
 import { isFirebaseMock, useCloudFunctions } from './env';
+import { scope } from './scope';
 import { AppError } from './errors';
 
 // Senha das contas de DEMONSTRAÇÃO (somente modo mock — bloqueado em produção
@@ -83,6 +84,7 @@ const defaultSelfAssessments = [
   {
     id: 'sa1',
     technicianId: 'tech1',
+    team: 'back-office',
     period: '2026-Q2',
     scores: {
       communication: 4,
@@ -97,6 +99,7 @@ const defaultSelfAssessments = [
   {
     id: 'sa2',
     technicianId: 'tech2',
+    team: 'teleservice',
     period: '2026-Q2',
     scores: {
       communication: 3,
@@ -111,6 +114,7 @@ const defaultSelfAssessments = [
   {
     id: 'sa3',
     technicianId: 'tech3',
+    team: 'teleservice',
     period: '2026-Q2',
     scores: {
       communication: 5,
@@ -203,8 +207,10 @@ export const userService = {
   },
 
   async getAllTechnicians(): Promise<User[]> {
-    if (isFirebaseMock) return getMockUsers().filter((u) => u.role === 'technician');
-    const snap = await getDocs(query(collection(db, 'users'), where('role', '==', 'technician')));
+    if (isFirebaseMock) return getMockUsers().filter((u) => u.role === 'technician' && scope.allows(u.team));
+    const managed = scope.get();
+    const base = [where('role', '==', 'technician'), ...(managed ? [where('team', '==', managed)] : [])];
+    const snap = await getDocs(query(collection(db, 'users'), ...base));
     return snap.docs.map((d) => d.data() as User);
   },
 
@@ -230,10 +236,10 @@ export const userService = {
       // O servidor valida dono, transição e carimba completedAt.
       const res = await httpsCallable<
         { uid: string; goalId: string; status: string },
-        { goalTitle: string; userName: string; previous: PDIGoal['status'] }
+        { goalTitle: string; userName: string; team: User['team']; previous: PDIGoal['status'] }
       >(functions, 'setPdiGoalStatus')({ uid, goalId, status });
       if (status === 'completed' && res.data.previous !== 'completed') {
-        await auditService.registerLog('pdi_goal_completion', goalId, uid, res.data.userName, {
+        await auditService.registerLog('pdi_goal_completion', goalId, uid, res.data.userName, res.data.team, {
           goalId, goalTitle: res.data.goalTitle, technicianId: uid, completedAt: new Date().toISOString(),
         });
       }
@@ -241,8 +247,10 @@ export const userService = {
     }
     let goalToLog: PDIGoal | undefined;
     let userName = '';
+    let userTeam: User['team'] = 'back-office';
     await mutateUser(uid, (u) => {
       userName = u.name;
+      userTeam = u.team;
       goalToLog = (u.structuredPDI ?? []).find((g) => g.id === goalId);
       if (!goalToLog) throw new AppError('Meta do PDI não encontrada.');
       return {
@@ -253,7 +261,7 @@ export const userService = {
     });
 
     if (status === 'completed' && goalToLog && (goalToLog as PDIGoal).status !== 'completed') {
-      await auditService.registerLog('pdi_goal_completion', goalId, uid, userName, {
+      await auditService.registerLog('pdi_goal_completion', goalId, uid, userName, userTeam, {
         goalId,
         goalTitle: (goalToLog as PDIGoal).title,
         technicianId: uid,
@@ -285,11 +293,15 @@ export const userService = {
 
   async getSelfAssessments(technicianId?: string): Promise<SelfAssessment[]> {
     if (isFirebaseMock) {
-      const all = getMockAssessments();
+      const all = getMockAssessments().filter((a) => scope.allows(a.team));
       return technicianId ? all.filter((a) => a.technicianId === technicianId) : all;
     }
     const col = collection(db, 'selfAssessments');
-    const snap = await getDocs(technicianId ? query(col, where('technicianId', '==', technicianId)) : query(col));
+    const managed = scope.get();
+    const snap = await getDocs(
+      technicianId ? query(col, where('technicianId', '==', technicianId))
+        : managed ? query(col, where('team', '==', managed))
+        : query(col));
     return snap.docs.map((d) => d.data() as SelfAssessment);
   },
 

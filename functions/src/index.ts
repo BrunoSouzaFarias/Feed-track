@@ -2,7 +2,7 @@ import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
-import { BADGES, canTransition, evaluateBadges, isGoalStatus, type GoalStatus } from './logic';
+import { BADGES, canManageTeam, canTransition, evaluateBadges, isGoalStatus, type GoalStatus } from './logic';
 
 initializeApp();
 const db = getFirestore();
@@ -15,7 +15,7 @@ async function requireCaller(uid: string | undefined) {
   const snap = await db.doc(`users/${uid}`).get();
   const data = snap.data();
   if (!snap.exists || data?.active !== true) throw new HttpsError('permission-denied', 'Conta inativa ou inexistente.');
-  return { uid, isSupervisor: data.role === 'supervisor' };
+  return { uid, isSupervisor: data.role === 'supervisor', managedTeam: (data.managedTeam ?? null) as string | null };
 }
 
 /** Avança o status de uma meta do PDI (valida dono, transição e carimba completedAt no servidor). */
@@ -29,6 +29,9 @@ export const setPdiGoalStatus = onCall(async (req) => {
   const result = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) throw new HttpsError('not-found', 'Usuário não encontrado.');
+    if (uid !== caller.uid && !canManageTeam(caller.managedTeam, snap.data()?.team)) {
+      throw new HttpsError('permission-denied', 'Colaborador fora da sua equipe.');
+    }
     const goals = (snap.data()?.structuredPDI ?? []) as Goal[];
     const goal = goals.find((g) => g.id === goalId);
     if (!goal) throw new HttpsError('not-found', 'Meta não encontrada.');
@@ -42,7 +45,7 @@ export const setPdiGoalStatus = onCall(async (req) => {
       return status === 'completed' ? { ...rest, status, completedAt: Timestamp.now() } : { ...rest, status };
     });
     tx.update(ref, { structuredPDI: next });
-    return { goalTitle: goal.title as string, userName: snap.data()?.name as string, previous: goal.status };
+    return { goalTitle: goal.title as string, userName: snap.data()?.name as string, team: snap.data()?.team as string, previous: goal.status };
   });
   return { ok: true, ...result };
 });
@@ -85,6 +88,10 @@ export const deleteUserAccount = onCall(async (req) => {
   const { uid } = (req.data ?? {}) as { uid?: string };
   if (typeof uid !== 'string' || !uid) throw new HttpsError('invalid-argument', 'uid obrigatório.');
   if (uid === caller.uid) throw new HttpsError('failed-precondition', 'Você não pode excluir a própria conta.');
+  const target = await db.doc(`users/${uid}`).get();
+  if (target.exists && !canManageTeam(caller.managedTeam, target.data()?.team)) {
+    throw new HttpsError('permission-denied', 'Colaborador fora da sua equipe.');
+  }
 
   for (const col of ['feedbacks', 'selfAssessments']) {
     const snap = await db.collection(col).where('technicianId', '==', uid).get();

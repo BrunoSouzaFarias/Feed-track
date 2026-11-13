@@ -102,13 +102,19 @@ export default function FeedbackForm({ technicians, initialTechId, onClose, onSu
       return;
     }
 
+    if (!selectedTech) {
+      toast.error('Selecione um colaborador.');
+      return;
+    }
+
     setLoading(true);
     try {
       const feedbackId = newId('fb');
       const newFeedback: Feedback = {
         id: feedbackId,
         technicianId: techId,
-        technicianName: selectedTech?.name || 'Técnico',
+        technicianName: selectedTech.name,
+        team: selectedTech.team,
         supervisorId: currentUser?.uid || '',
         type,
         axis,

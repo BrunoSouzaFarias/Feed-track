@@ -41,6 +41,11 @@ beforeAll(async () => {
     structuredPDI: [{ id: 'g1', title: 'Meta 1', description: 'd', deadline: '2026-12-01', status: 'pending', createdAt: Timestamp.now() }],
   });
   await mk('other', 'technician');
+  await mk('supT', 'supervisor', { team: 'teleservice', managedTeam: 'teleservice' });
+  await mk('techT', 'technician', {
+    team: 'teleservice',
+    structuredPDI: [{ id: 'gT', title: 'Meta T', description: 'd', deadline: '2026-12-01', status: 'pending', createdAt: Timestamp.now() }],
+  });
   await db.doc('feedbacks/f1').set({ id: 'f1', technicianId: uids.tech, status: 'read' });
   await db.doc('selfAssessments/s1').set({ id: 's1', technicianId: uids.tech });
 });
@@ -107,5 +112,18 @@ describe('deleteUserAccount', () => {
     expect((await db.doc(`users/${uids.tech}`).get()).exists).toBe(false);
     expect((await db.doc('feedbacks/f1').get()).exists).toBe(false);
     expect((await db.doc('selfAssessments/s1').get()).exists).toBe(false);
+  });
+});
+
+describe('supervisor com escopo de equipe (managedTeam)', () => {
+  it('altera meta/exclui apenas colaboradores da própria equipe', async () => {
+    await loginAs('supT@liberty.com');
+    await expect(call('setPdiGoalStatus', { uid: uids.other, goalId: 'g1', status: 'completed' })).rejects.toMatchObject({ code: 'functions/permission-denied' });
+    await expect(call('deleteUserAccount', { uid: uids.other })).rejects.toMatchObject({ code: 'functions/permission-denied' });
+    const r = await call('setPdiGoalStatus', { uid: uids.techT, goalId: 'gT', status: 'in_progress' });
+    expect(r).toMatchObject({ ok: true, team: 'teleservice' });
+    await call('deleteUserAccount', { uid: uids.techT });
+    await expect(adminAuth(admin).getUser(uids.techT)).rejects.toMatchObject({ code: 'auth/user-not-found' });
+    expect((await adminAuth(admin).getUser(uids.other)).uid).toBe(uids.other); // outra equipe intacta
   });
 });

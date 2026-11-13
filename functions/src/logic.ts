@@ -52,3 +52,8 @@ export function canTransition(from: GoalStatus, to: GoalStatus, isSupervisor: bo
   if (from === to) return false;
   return isSupervisor || ORDER[to] > ORDER[from];
 }
+
+/** Supervisor com escopo (managedTeam) só gerencia a própria equipe; sem escopo gerencia todas. */
+export function canManageTeam(managedTeam: string | null | undefined, team: string | null | undefined): boolean {
+  return managedTeam == null || managedTeam === team;
+}

@@ -38,6 +38,12 @@ firebase deploy --only firestore:rules,hosting
 ```
 **Regras estritas** (`firestore.strict.rules`, gerado por `npm run rules:strict`): o técnico deixa de poder gravar `structuredPDI` e `badges` direto no Firestore — só o servidor (Admin SDK) ou um supervisor. Faça o deploy das regras estritas **somente depois** de implantar as functions e ativar `VITE_USE_CLOUD_FUNCTIONS=true`, senão técnicos não conseguirão atualizar metas. Ambos os conjuntos de regras têm testes (`npm run test:rules`).
 
+## Escopo de supervisor por equipe (opcional)
+1. Se já existem feedbacks/autoavaliações/logs, preencha o campo `team` neles: `GOOGLE_APPLICATION_CREDENTIALS=chave.json npm run backfill:team -- --project SEU_PROJETO` (dry-run) e depois com `--apply`.
+2. No Firestore, em `users/{uid do supervisor}`, defina `managedTeam` = `back-office` ou `teleservice`.
+3. Faça o deploy de `firestore.indexes.json` (há um índice novo para `auditLogs`).
+Sem `managedTeam` o supervisor continua gerenciando todas as equipes.
+
 ## Primeiro supervisor
 1. Crie a conta em `/register` (nasce como técnico).
 2. No console do Firestore, altere `users/{uid}.role` para `supervisor`.

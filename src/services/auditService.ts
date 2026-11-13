@@ -6,6 +6,7 @@ import { newId } from './ids';
 import { sha256Hex, signHash } from './signatureService';
 import { offlineSyncService } from './offlineSyncService';
 import { getActorId } from './actor';
+import { scope } from './scope';
 import { AppError } from './errors';
 
 const MOCK_AUDIT_LOGS_KEY = 'feed_track_mock_audit_logs';
@@ -46,6 +47,7 @@ export const auditService = {
     entityId: string,
     technicianId: string,
     technicianName: string,
+    team: AuditLog['team'],
     payload: Record<string, unknown>
   ): Promise<AuditLog> {
     const timestamp = new Date().toISOString();
@@ -65,6 +67,7 @@ export const auditService = {
       entityId,
       technicianId,
       technicianName,
+      team,
       details: eventType === 'feedback_signature'
         ? `Feedback assinado digitalmente por ${technicianName}.`
         : `Meta do PDI concluída por ${technicianName}.`,
@@ -103,20 +106,23 @@ export const auditService = {
   /** Supervisor: todos os logs. Técnico: informe `technicianId` (as regras exigem o filtro). */
   async getLogs(technicianId?: string): Promise<AuditLog[]> {
     if (isFirebaseMock) {
-      const logs = readMockLogs();
+      const logs = readMockLogs().filter((l) => scope.allows(l.team));
       return technicianId ? logs.filter((l) => l.technicianId === technicianId) : logs;
     }
     const base = collection(db, 'auditLogs');
+    const managed = scope.get();
     const q = technicianId
       ? query(base, where('technicianId', '==', technicianId), orderBy('createdAt', 'desc'))
-      : query(base, orderBy('createdAt', 'desc'));
+      : managed
+        ? query(base, where('team', '==', managed), orderBy('createdAt', 'desc'))
+        : query(base, orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
     return snap.docs.map((d) => {
       const data = d.data();
       return {
         id: data.id, timestamp: data.timestamp, eventType: data.eventType,
         entityId: data.entityId, technicianId: data.technicianId,
-        technicianName: data.technicianName, details: data.details,
+        technicianName: data.technicianName, team: data.team, details: data.details,
         hash: data.hash, signature: data.signature, publicKey: data.publicKey,
         signerId: data.signerId ?? data.technicianId,
       } satisfies AuditLog;

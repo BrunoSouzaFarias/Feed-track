@@ -13,13 +13,13 @@ const user = (uid: string, over: Record<string, unknown> = {}) => ({
   position: 'Agente N1', active: true, createdAt: ts(), badges: [], structuredPDI: [], ...over,
 });
 const feedback = (id: string, over: Record<string, unknown> = {}) => ({
-  id, technicianId: 'tech1', technicianName: 'tech1', supervisorId: 'sup1', type: 'positive',
+  id, technicianId: 'tech1', technicianName: 'tech1', supervisorId: 'sup1', team: 'back-office', type: 'positive',
   axis: 'Comunicação', description: 'Texto do feedback com tamanho suficiente.', status: 'pending',
   createdAt: ts(), ...over,
 });
 const auditLog = (id: string, over: Record<string, unknown> = {}) => ({
   id, timestamp: new Date().toISOString(), eventType: 'feedback_signature', entityId: 'fb1',
-  technicianId: 'tech1', technicianName: 'tech1', details: 'x',
+  technicianId: 'tech1', technicianName: 'tech1', team: 'back-office', details: 'x',
   hash: 'a'.repeat(64), signature: 'c2ln', publicKey: '{}', signerId: 'tech1', createdAt: serverTimestamp(), ...over,
 });
 
@@ -175,10 +175,10 @@ describe('signingKeys (âncora de chaves)', () => {
     await assertFails(setDoc(doc(asOther(), 'signingKeys/tech1x'), key('tech1x')));                          // em nome de outro
     await assertFails(setDoc(doc(asOther(), 'signingKeys/tech2b'), key('tech2b', { createdAt: ts() })));
   });
-  it('leitura: dono e supervisor; reset só por supervisor', async () => {
+  it('leitura (pública); reset só por supervisor', async () => {
     await assertSucceeds(getDoc(doc(asTech(), 'signingKeys/tech1')));
     await assertSucceeds(getDoc(doc(asSup(), 'signingKeys/tech1')));
-    await assertFails(getDoc(doc(asOther(), 'signingKeys/tech1')));
+    await assertSucceeds(getDoc(doc(asOther(), 'signingKeys/tech1'))); // chave PÚBLICA: legível por usuário ativo
     await assertFails(deleteDoc(doc(asTech(), 'signingKeys/tech1')));
     await assertSucceeds(deleteDoc(doc(asSup(), 'signingKeys/tech1')));
   });
@@ -186,7 +186,7 @@ describe('signingKeys (âncora de chaves)', () => {
 
 describe('selfAssessments', () => {
   const sa = (id: string, over: Record<string, unknown> = {}) => ({
-    id, technicianId: 'tech1', period: '2026-Q4', comments: 'ok', createdAt: ts(),
+    id, technicianId: 'tech1', team: 'back-office', period: '2026-Q4', comments: 'ok', createdAt: ts(),
     scores: { communication: 4, teamwork: 4, technical: 4, proactivity: 4, attendance: 4 }, ...over,
   });
   it('cria a própria, valida notas e período, e não é editável pelo técnico', async () => {
@@ -195,6 +195,60 @@ describe('selfAssessments', () => {
     await assertFails(setDoc(doc(asTech(), 'selfAssessments/s3'), sa('s3', { scores: { communication: 9, teamwork: 4, technical: 4, proactivity: 4, attendance: 4 } })));
     await assertFails(setDoc(doc(asTech(), 'selfAssessments/s4'), sa('s4', { period: 'qualquer' })));
     await assertFails(updateDoc(doc(asTech(), 'selfAssessments/s1'), { comments: 'editado' }));
+  });
+});
+
+describe('escopo de supervisor por equipe (managedTeam)', () => {
+  const asScoped = () => env.authenticatedContext('supT', { email: 'supT@liberty.com' }).firestore();
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (c) => {
+      const db = c.firestore();
+      await setDoc(doc(db, 'users/supT'), user('supT', { role: 'supervisor', team: 'teleservice', managedTeam: 'teleservice' }));
+      await setDoc(doc(db, 'users/techT'), user('techT', { team: 'teleservice' }));
+      await setDoc(doc(db, 'feedbacks/fbT'), feedback('fbT', { technicianId: 'techT', team: 'teleservice' }));
+      await setDoc(doc(db, 'feedbacks/fbLegacy'), (() => { const f = feedback('fbLegacy', { technicianId: 'techT' }) as Record<string, unknown>; delete f.team; return f; })());
+    });
+  });
+
+  it('enxerga e altera só a própria equipe', async () => {
+    await assertSucceeds(getDoc(doc(asScoped(), 'users/techT')));
+    await assertFails(getDoc(doc(asScoped(), 'users/tech1')));
+    await assertSucceeds(getDoc(doc(asScoped(), 'feedbacks/fbT')));
+    await assertFails(getDoc(doc(asScoped(), 'feedbacks/fb1')));
+    await assertFails(getDoc(doc(asScoped(), 'feedbacks/fbLegacy'))); // sem `team` (legado): invisível até o backfill
+    await assertSucceeds(updateDoc(doc(asScoped(), 'users/techT'), { position: 'Líder' }));
+    await assertFails(updateDoc(doc(asScoped(), 'users/tech1'), { position: 'Líder' }));
+    await assertFails(updateDoc(doc(asScoped(), 'users/techT'), { team: 'back-office' })); // não empurra gente para fora do escopo
+    await assertFails(deleteDoc(doc(asScoped(), 'users/tech1')));
+  });
+  it('cria feedback só para a equipe que gerencia e com `team` correto', async () => {
+    await assertSucceeds(setDoc(doc(asScoped(), 'feedbacks/new1'), feedback('new1', { supervisorId: 'supT', technicianId: 'techT', team: 'teleservice' })));
+    await assertFails(setDoc(doc(asScoped(), 'feedbacks/new2'), feedback('new2', { supervisorId: 'supT' }))); // tech1 é back-office
+    await assertFails(setDoc(doc(asScoped(), 'feedbacks/new3'), feedback('new3', { supervisorId: 'supT', technicianId: 'techT', team: 'back-office' }))); // team mentiroso
+  });
+  it('não consegue se promover, mudar o próprio escopo nem criar supervisores', async () => {
+    await assertFails(updateDoc(doc(asScoped(), 'users/supT'), { managedTeam: null }));
+    await assertFails(updateDoc(doc(asScoped(), 'users/techT'), { role: 'supervisor' }));
+    await assertFails(setDoc(doc(asScoped(), 'users/novoSup'), user('novoSup', { role: 'supervisor', team: 'teleservice' })));
+    await assertSucceeds(setDoc(doc(asScoped(), 'users/novoTec'), user('novoTec', { team: 'teleservice' })));
+    await assertFails(setDoc(doc(asScoped(), 'users/novoTec2'), user('novoTec2', { team: 'back-office' })));
+  });
+  it('supervisor SEM escopo continua vendo tudo e pode definir escopo', async () => {
+    await assertSucceeds(getDoc(doc(asSup(), 'users/techT')));
+    await assertSucceeds(getDoc(doc(asSup(), 'feedbacks/fbLegacy')));
+    await assertSucceeds(updateDoc(doc(asSup(), 'users/supT'), { managedTeam: 'back-office' }));
+  });
+  it('log e autoavaliação respeitam o escopo', async () => {
+    await env.withSecurityRulesDisabled(async (c) => {
+      await setDoc(doc(c.firestore(), 'auditLogs/aT'), { ...auditLog('aT'), createdAt: ts(), team: 'teleservice', technicianId: 'techT' });
+      await setDoc(doc(c.firestore(), 'selfAssessments/saT'), { id: 'saT', technicianId: 'techT', team: 'teleservice', period: '2026-Q4', comments: '', createdAt: ts(), scores: { communication: 3, teamwork: 3, technical: 3, proactivity: 3, attendance: 3 } });
+    });
+    await env.withSecurityRulesDisabled(async (c) => {
+      await setDoc(doc(c.firestore(), 'selfAssessments/saB'), { id: 'saB', technicianId: 'tech1', team: 'back-office', period: '2026-Q4', comments: '', createdAt: ts(), scores: { communication: 3, teamwork: 3, technical: 3, proactivity: 3, attendance: 3 } });
+    });
+    await assertSucceeds(getDoc(doc(asScoped(), 'auditLogs/aT')));
+    await assertFails(getDoc(doc(asScoped(), 'selfAssessments/saB'))); // outra equipe
+    await assertSucceeds(getDoc(doc(asScoped(), 'selfAssessments/saT')));
   });
 });
 

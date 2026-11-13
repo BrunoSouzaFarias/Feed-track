@@ -16,6 +16,24 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true;
     }
 
+    // Escopo opcional de supervisor por equipe: `users/{supervisor}.managedTeam`
+    // ('back-office' | 'teleservice'). Ausente/null = gerencia TODAS as equipes
+    // (comportamento padrão). Com valor, só enxerga/altera dados dessa equipe.
+    function supData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function supervisorOf(team) {
+      return isSupervisor() && (supData().get('managedTeam', null) == null || supData().get('managedTeam', null) == team);
+    }
+    // Só supervisor SEM escopo pode alterar role/managedTeam (evita auto-promoção/auto-remoção de escopo).
+    function isFullSupervisor() {
+      return isSupervisor() && supData().get('managedTeam', null) == null;
+    }
+
+    function supDataTeam() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.team;
+    }
+
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
@@ -39,12 +57,13 @@ service cloud.firestore {
     // users
     // ------------------------------------------------------------------
     match /users/{userId} {
-      allow read: if isOwner(userId) || isSupervisor();
+      allow read: if isOwner(userId) || supervisorOf(resource.data.get('team', null));
 
       // Auto-cadastro: SEMPRE técnico, ativo, sem badges/PDI e com o e-mail
       // do token (impede forjar e-mail/uid de terceiros).
       // Somente um supervisor pode criar outro perfil arbitrário.
-      allow create: if isSupervisor() ||
+      allow create: if (supervisorOf(request.resource.data.team) &&
+         (isFullSupervisor() || request.resource.data.role == 'technician')) ||
         (isOwner(userId) &&
          request.resource.data.keys().hasOnly(['uid','name','email','role','team','position','photoURL','phone','active','createdAt','badges','structuredPDI']) &&
          request.resource.data.uid == userId &&
@@ -61,27 +80,30 @@ service cloud.firestore {
       // e, no caso do técnico, o progresso do próprio PDI / badges.
       // NÃO pode alterar: role, active, team, position, email, uid, createdAt.
       // (impede auto-reativação, auto-promoção e troca de equipe)
-      allow update: if isSupervisor() ||
+      allow update: if (supervisorOf(resource.data.team) && supervisorOf(request.resource.data.team) &&
+         (isFullSupervisor() || !changedKeys().hasAny(['role','managedTeam']))) ||
         (isOwner(userId) && isActiveUser() &&
          changedKeys().hasOnly(['name','phone','photoURL','structuredPDI','badges']) &&
          // técnico não pode remover metas/badges, apenas avançá-las
          request.resource.data.structuredPDI.size() >= resource.data.structuredPDI.size() &&
          request.resource.data.badges.size() >= resource.data.badges.size());
 
-      allow delete: if isSupervisor();
+      allow delete: if supervisorOf(resource.data.team);
     }
 
     // ------------------------------------------------------------------
     // feedbacks
     // ------------------------------------------------------------------
     match /feedbacks/{feedbackId} {
-      allow read: if isSupervisor() ||
+      allow read: if supervisorOf(resource.data.get('team', null)) ||
         (isActiveUser() && resource.data.technicianId == request.auth.uid);
 
       // Apenas supervisores criam feedback, em seu próprio nome, e sempre
       // pendente e sem assinatura pré-fabricada.
-      allow create: if isSupervisor() &&
-        request.resource.data.keys().hasOnly(['id','technicianId','technicianName','supervisorId','type','axis','description','status','createdAt']) &&
+      allow create: if supervisorOf(request.resource.data.team) &&
+        request.resource.data.keys().hasOnly(['id','technicianId','technicianName','supervisorId','team','type','axis','description','status','createdAt']) &&
+        // `team` denormalizado precisa ser a equipe real do colaborador
+        request.resource.data.team == get(/databases/$(database)/documents/users/$(request.resource.data.technicianId)).data.team &&
         request.resource.data.id == feedbackId &&
         request.resource.data.supervisorId == request.auth.uid &&
         request.resource.data.type in ['positive','development'] &&
@@ -95,26 +117,28 @@ service cloud.firestore {
 
       // Técnico pode APENAS marcar como lido / assinar o próprio feedback.
       // Conteúdo (descrição, tipo, eixo, destinatário, autor) é imutável.
-      allow update: if isSupervisor() ||
+      allow update: if (supervisorOf(resource.data.get('team', null)) &&
+         request.resource.data.get('team', null) == resource.data.get('team', null)) ||
         (isActiveUser() &&
          resource.data.technicianId == request.auth.uid &&
          changedKeys().hasOnly(['status','readAt','signedAt']) &&
          request.resource.data.status == 'read' &&
          (!('signedAt' in resource.data) || request.resource.data.signedAt == resource.data.signedAt));
 
-      allow delete: if isSupervisor();
+      allow delete: if supervisorOf(resource.data.get('team', null));
     }
 
     // ------------------------------------------------------------------
     // selfAssessments
     // ------------------------------------------------------------------
     match /selfAssessments/{assessmentId} {
-      allow read: if isSupervisor() ||
+      allow read: if supervisorOf(resource.data.get('team', null)) ||
         (isActiveUser() && resource.data.technicianId == request.auth.uid);
 
       allow create: if isActiveUser() &&
         request.resource.data.technicianId == request.auth.uid &&
-        request.resource.data.keys().hasOnly(['id','technicianId','period','scores','comments','createdAt']) &&
+        request.resource.data.keys().hasOnly(['id','technicianId','team','period','scores','comments','createdAt']) &&
+        request.resource.data.team == supDataTeam() &&
         request.resource.data.id == assessmentId &&
         request.resource.data.period.matches('^[0-9]{4}-Q[1-4]$') &&
         request.resource.data.comments is string && request.resource.data.comments.size() <= 2000 &&
@@ -126,15 +150,17 @@ service cloud.firestore {
         request.resource.data.scores.attendance is number && request.resource.data.scores.attendance >= 1 && request.resource.data.scores.attendance <= 5;
 
       // Autoavaliação enviada não é editável (histórico confiável).
-      allow update: if isSupervisor();
-      allow delete: if isSupervisor();
+      allow update: if supervisorOf(resource.data.get('team', null)) &&
+        request.resource.data.get('team', null) == resource.data.get('team', null);
+      allow delete: if supervisorOf(resource.data.get('team', null));
     }
 
     // ------------------------------------------------------------------
     // signingKeys — âncora das chaves públicas de assinatura (1ª chave vence)
     // ------------------------------------------------------------------
     match /signingKeys/{userId} {
-      allow read: if isOwner(userId) || isSupervisor();
+      // Chaves PÚBLICAS não são segredo: qualquer usuário ativo lê (permite verificar assinaturas).
+      allow read: if isActiveUser();
       allow create: if isOwner(userId) && isActiveUser() &&
         request.resource.data.keys().hasOnly(['uid','publicKey','createdAt']) &&
         request.resource.data.uid == userId &&
@@ -143,18 +169,19 @@ service cloud.firestore {
         request.resource.data.createdAt == request.time;
       // Imutável: trocar de chave/dispositivo exige reset por um supervisor.
       allow update: if false;
-      allow delete: if isSupervisor();
+      allow delete: if isFullSupervisor();
     }
 
     // ------------------------------------------------------------------
     // auditLogs — imutáveis; criação só com evidência real no banco
     // ------------------------------------------------------------------
     match /auditLogs/{logId} {
-      allow read: if isSupervisor() ||
+      allow read: if supervisorOf(resource.data.get('team', null)) ||
         (isActiveUser() && resource.data.technicianId == request.auth.uid);
 
       allow create: if isActiveUser() &&
-        request.resource.data.keys().hasOnly(['id','timestamp','eventType','entityId','technicianId','technicianName','details','hash','signature','publicKey','signerId','createdAt']) &&
+        request.resource.data.keys().hasOnly(['id','timestamp','eventType','entityId','technicianId','technicianName','team','details','hash','signature','publicKey','signerId','createdAt']) &&
+        request.resource.data.team == get(/databases/$(database)/documents/users/$(request.resource.data.technicianId)).data.team &&
         request.resource.data.id == logId &&
         request.resource.data.createdAt == request.time &&
         request.resource.data.hash.matches('^[0-9a-f]{64}$') &&
@@ -175,7 +202,7 @@ service cloud.firestore {
           ||
           // Conclusão de meta do PDI: o próprio técnico ou um supervisor.
           (request.resource.data.eventType == 'pdi_goal_completion' &&
-           (isOwner(request.resource.data.technicianId) || isSupervisor()))
+           (isOwner(request.resource.data.technicianId) || supervisorOf(request.resource.data.team)))
         );
 
       // Trilha de auditoria imutável.

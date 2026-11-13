@@ -6,6 +6,7 @@ import { offlineSyncService } from './offlineSyncService';
 import { isFirebaseMock } from './env';
 import { AppError } from './errors';
 import { parseDate } from './dateUtils';
+import { scope } from './scope';
 
 // ---------------------------------------------------------------------------
 // MODO MOCK (somente desenvolvimento): localStorage faz o papel do banco.
@@ -15,13 +16,13 @@ const MOCK_FEEDBACKS_KEY = 'feed_track_mock_feedbacks';
 
 const defaultFeedbacks = (): Feedback[] => [
   {
-    id: 'fb1', technicianId: 'tech1', technicianName: 'Ana Silva', supervisorId: 'sup1',
+    id: 'fb1', technicianId: 'tech1', technicianName: 'Ana Silva', supervisorId: 'sup1', team: 'back-office',
     type: 'positive', axis: 'Comunicação',
     description: 'Excelente postura na última reunião de alinhamento com a diretoria do Back-office. Conseguiu explicar as métricas com muita clareza.',
     status: 'pending', createdAt: Timestamp.now(),
   },
   {
-    id: 'fb2', technicianId: 'tech1', technicianName: 'Ana Silva', supervisorId: 'sup1',
+    id: 'fb2', technicianId: 'tech1', technicianName: 'Ana Silva', supervisorId: 'sup1', team: 'back-office',
     type: 'development', axis: 'Gestão do tempo',
     description: 'Atenção especial aos prazos de fechamento dos chamados de N1. Tivemos alguns atrasos pontuais nesta semana que impactaram o SLA.',
     status: 'read', readAt: Timestamp.now(), signedAt: Timestamp.now(), createdAt: Timestamp.now(),
@@ -54,12 +55,17 @@ export const feedbackService = {
 
   async getFeedbacks(technicianId?: string): Promise<Feedback[]> {
     if (isFirebaseMock) {
-      const fbs = getMockFeedbacks();
+      const fbs = getMockFeedbacks().filter((f) => scope.allows(f.team));
       return technicianId ? fbs.filter((f) => f.technicianId === technicianId) : fbs;
     }
     // getDocs lê do cache persistente do SDK quando offline.
+    // Supervisor com escopo de equipe: a consulta PRECISA vir filtrada (as regras negam consultas mais amplas).
     const col = collection(db, 'feedbacks');
-    const snap = await getDocs(technicianId ? query(col, where('technicianId', '==', technicianId)) : query(col));
+    const managed = scope.get();
+    const snap = await getDocs(
+      technicianId ? query(col, where('technicianId', '==', technicianId))
+        : managed ? query(col, where('team', '==', managed))
+        : query(col));
     return snap.docs.map((d) => d.data() as Feedback);
   },
 
@@ -93,7 +99,7 @@ export const feedbackService = {
 
     if (signed) {
       // Sem try/catch silencioso: se a trilha de auditoria falhar, o chamador é avisado.
-      await auditService.registerLog('feedback_signature', feedbackId, current.technicianId, current.technicianName, {
+      await auditService.registerLog('feedback_signature', feedbackId, current.technicianId, current.technicianName, current.team, {
         feedbackId,
         technicianId: current.technicianId,
         axis: current.axis,

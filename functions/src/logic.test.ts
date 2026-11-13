@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BADGES, canTransition, evaluateBadges, isGoalStatus } from './logic';
+import { BADGES, canManageTeam, canTransition, evaluateBadges, isGoalStatus } from './logic';
 
 const DAY = 86_400_000;
 const base = { hasReadFeedback: false, goalStatuses: [] as ('pending' | 'in_progress' | 'completed')[], hasAssessments: false, createdAtMs: 1_000_000_000_000, nowMs: 1_000_000_000_000 };
@@ -37,5 +37,15 @@ describe('canTransition', () => {
   it('isGoalStatus valida entrada', () => {
     expect(isGoalStatus('completed')).toBe(true);
     expect(isGoalStatus('hacked')).toBe(false);
+  });
+});
+
+describe('canManageTeam', () => {
+  it('sem escopo gerencia tudo; com escopo só a própria equipe', () => {
+    expect(canManageTeam(null, 'teleservice')).toBe(true);
+    expect(canManageTeam(undefined, 'back-office')).toBe(true);
+    expect(canManageTeam('teleservice', 'teleservice')).toBe(true);
+    expect(canManageTeam('teleservice', 'back-office')).toBe(false);
+    expect(canManageTeam('teleservice', undefined)).toBe(false);
   });
 });

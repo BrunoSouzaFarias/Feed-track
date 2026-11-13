@@ -58,6 +58,7 @@ export default function SelfAssessment({ userProfile, onSuccess, onClose }: Self
       const assessment: SelfAssessmentType = {
         id: newId('sa'),
         technicianId: userProfile.uid,
+        team: userProfile.team,
         period: currentPeriod,
         scores: {
           communication: comm,

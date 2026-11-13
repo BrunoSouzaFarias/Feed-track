@@ -9,6 +9,7 @@ A autorização **real** está em `firestore.rules` (o cliente é público e nã
 | Conta desativada perde acesso mesmo com token válido | `isActiveUser()` / `isSupervisor()` exigem `active == true` |
 | Conteúdo do feedback imutável para o técnico (só `status/readAt/signedAt`) | `feedbacks.update` |
 | Esquema/limites validados no servidor (tipos, tamanhos, notas 1–5, período) | regras de `create` |
+| Supervisor com escopo de equipe (`managedTeam`) só acessa a própria equipe | `firestore.rules` (`supervisorOf`), `functions/` |
 | Auditoria imutável, com `createdAt` do servidor e evidência (feedback existente e assinado) | `auditLogs` |
 | Assinatura ECDSA P-256 real, chave privada não-exportável, chave pública ancorada no servidor | `signatureService.ts`, `signingKeys` nas regras |
 | Nenhum dado pessoal em `localStorage` com Firebase real; limpeza no boot/logout | `legacyCleanup.ts`, serviços |
@@ -41,7 +42,7 @@ Testes: `npm run test:rules` (21 casos de regras; contra as regras antigas, 8 do
 1. **Badges e progresso do PDI**: no modo padrão são gravados pelo cliente do técnico (as regras impedem remover itens). **Fechado pelo modo estrito**: implante `/functions` + `firestore.strict.rules` (ver `docs/DEPLOY.md`); aí só o servidor concede badges e valida transições.
 2. **Assinatura digital**: a chave pública de cada usuário é **ancorada no servidor** (`signingKeys/{uid}`, imutável, a 1ª vence) e as regras só aceitam log assinado com a chave ancorada de quem está logado. Resta o limite de que a posse da chave é por dispositivo (troca de dispositivo exige reset por supervisor) e de que isto não substitui certificado ICP-Brasil se houver exigência legal específica.
 3. **Exclusão de usuário**: com `VITE_USE_CLOUD_FUNCTIONS=true`, `deleteUserAccount` remove também a conta do Auth. Sem as functions, só perfil/feedbacks/autoavaliações são apagados e o login é recusado por falta de perfil. Logs de auditoria são mantidos por serem imutáveis (base legal: obrigação de conformidade).
-4. **Multi-tenant**: todo supervisor vê todos os colaboradores. Se houver várias equipes/empresas, é preciso modelar `teamId`/`orgId` nas regras.
+4. **Escopo de supervisor por equipe (opt-in)**: por padrão o supervisor gerencia todas as equipes. Para limitar, defina `users/{uid}.managedTeam` (`back-office` ou `teleservice`) no Firestore; as regras e as Cloud Functions passam a restringir leitura/escrita a essa equipe, e um supervisor com escopo não pode promover ninguém nem alterar o próprio escopo. Documentos antigos precisam do campo `team` (`npm run backfill:team`). Isolamento entre *empresas* (multi-organização) continua fora de escopo.
 5. **Primeiro supervisor** é promovido manualmente no console (não há como se auto-promover pelo app — é intencional).
 6. O histórico do Git ainda contém `drive_folder.html` e demais arquivos removidos do repositório. Reescrever histórico compartilhado exige decisão do dono do repositório; se necessário: `git filter-repo --path drive_folder.html --invert-paths` seguido de force-push coordenado com todos os colaboradores.
 
