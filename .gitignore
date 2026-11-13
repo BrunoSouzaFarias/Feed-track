@@ -75,3 +75,12 @@ GoogleService-Info.plist
 # NPM auth and lockfiles that may contain tokens (only if you want to ignore local overrides)
 .npmrc
 
+
+# Arquivos locais / lixo que não pertencem ao repositório
+scratch/
+drive_folder.html
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
+.claude-plugin/
+skills-lock.json

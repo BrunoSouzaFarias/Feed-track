@@ -1,86 +1,49 @@
-## Feed-Track — modo mock (sem Firebase configurado)
+# Feed-Track
 
-Sem `VITE_FIREBASE_API_KEY` no `.env`, o app roda em modo mock (dados em `localStorage`). Contas de demonstração já semeadas:
+Gestão de feedbacks 1:1, PDI (plano de desenvolvimento individual), autoavaliações, 9-Box e trilha de auditoria para equipes de atendimento. React 19 + TypeScript + Vite, Firebase (Auth + Firestore) e PWA.
 
-| Papel | E-mail | Senha |
-|---|---|---|
-| Supervisor | rodrigo.supervisor@liberty.com | `liberty123` |
-| Técnico | ana.silva@liberty.com | `liberty123` |
-| Técnico | bruno.souza@liberty.com | `liberty123` |
-| Técnico | carlos.oliveira@liberty.com | `liberty123` |
+## Perfis
+- **Supervisor**: equipe, feedbacks, PDIs, clima, exportações (PDF/CSV), compliance, 9-Box e insights.
+- **Técnico**: seus feedbacks (leitura/assinatura), PDI, radar, badges, linha do tempo e autoavaliação.
 
-Cadastro público (`/register`) sempre cria contas de **técnico** — contas de supervisor só podem ser criadas por um supervisor existente (aba "Equipe") ou promovidas diretamente no Firestore.
+O cadastro público (`/register`) **sempre** cria técnico. Supervisores são criados por outro supervisor (aba “Equipe”) ou promovidos direto no Firestore (veja “Primeiro supervisor”).
 
-# React + TypeScript + Vite
+## Desenvolvimento
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev          # modo mock (sem Firebase) se .env estiver vazio
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Modo mock (somente dev/demonstração)
+Sem `VITE_FIREBASE_API_KEY`, o app usa `localStorage` como banco. Contas semeadas (senha `liberty123`):
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+| Papel | E-mail |
+|---|---|
+| Supervisor | rodrigo.supervisor@liberty.com |
+| Técnico | ana.silva@liberty.com · bruno.souza@liberty.com · carlos.oliveira@liberty.com |
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+> **Em build de produção o modo mock é bloqueado** (o app mostra “Configuração ausente”). Só é liberado com `VITE_ALLOW_MOCK=true`, explicitamente.
+
+### Firebase real
+1. Copie `.env.example` para `.env` e preencha as credenciais.
+2. `firebase deploy --only firestore:rules,firestore:indexes,hosting` (regras, índices e headers de segurança estão versionados).
+3. Siga o checklist em [`docs/SECURITY.md`](docs/SECURITY.md) (App Check, política de senha, domínios autorizados).
+
+### Primeiro supervisor
+Crie a conta pelo `/register` e, no console do Firestore, altere `users/{uid}.role` para `supervisor` (as regras impedem que isso seja feito pelo próprio app).
+
+## Qualidade
+
+```bash
+npm run typecheck    # tsc -b
+npm run lint         # eslint
+npm test             # testes unitários (vitest)
+npm run test:rules   # testes das regras do Firestore (emulador; requer Java)
+npm run ci           # typecheck + lint + test + build
 ```
+
+## Documentação
+- [`docs/SECURITY.md`](docs/SECURITY.md) — modelo de ameaças, controles, riscos residuais e checklist de deploy.
+- [`docs/PRIVACY.md`](docs/PRIVACY.md) — LGPD: dados tratados, retenção e direitos do titular.
+- [`docs/subagent/`](docs/subagent) — especificações por funcionalidade.
