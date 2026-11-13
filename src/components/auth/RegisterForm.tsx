@@ -3,6 +3,9 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Mail, Lock, User, Briefcase, Users, Loader2, ArrowLeft } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAuth } from '../../hooks/useAuth';
+import { sessionHint } from '../../services/sessionHint';
+import { friendlyError } from '../../services/errors';
+import { validatePassword } from '../../services/passwordPolicy';
 import { useSmoothScroll } from '../../hooks/useSmoothScroll';
 import toast from 'react-hot-toast';
 import Magnetic from '../shared/Magnetic';
@@ -26,7 +29,7 @@ export default function RegisterForm() {
     }
   }, [user, navigate]);
 
-  if (authLoading && (sessionStorage.getItem('feed_track_logged_in') === 'true' || localStorage.getItem('feed_track_logged_in') === 'true')) {
+  if (authLoading && (sessionHint.get())) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950 transition-colors duration-200">
         <div className="flex flex-col items-center gap-3">
@@ -53,8 +56,9 @@ export default function RegisterForm() {
       return;
     }
 
-    if (password.length < 6) {
-      toast.error('A senha deve ter no mínimo 6 caracteres.');
+    const policyError = validatePassword(password);
+    if (policyError) {
+      toast.error(policyError);
       return;
     }
 
@@ -63,11 +67,11 @@ export default function RegisterForm() {
       // Self-registration is always as technician — supervisor accounts can only
       // be created by an existing supervisor (see useAuth.createTechnicianBySupervisor)
       // or promoted directly in Firestore, never chosen by the registrant.
-      await register(name, email, password, team, position, 'technician');
+      await register(name, email, password, team, position);
       toast.success('Cadastro realizado com sucesso!');
       navigate('/technician');
-    } catch (error: any) {
-      toast.error(error.message || 'Erro ao realizar cadastro.');
+    } catch (error) {
+      toast.error(friendlyError(error, 'Erro ao realizar cadastro.'));
     } finally {
       setLoading(false);
     }
@@ -212,7 +216,7 @@ export default function RegisterForm() {
                   <select
                     id="register-team"
                     value={team}
-                    onChange={(e) => setTeam(e.target.value as any)}
+                    onChange={(e) => setTeam(e.target.value as 'back-office' | 'teleservice')}
                     className="w-full pl-10 pr-8 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-950/40 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-[#0bbb81] transition-all text-xs cursor-pointer appearance-none"
                   >
                     <option value="back-office">Back-office</option>
@@ -256,7 +260,7 @@ export default function RegisterForm() {
                   id="register-password"
                   type="password"
                   autoComplete="new-password"
-                  placeholder="Mínimo 6 caracteres"
+                  placeholder="Mínimo 10 caracteres, com letras e números"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-950/40 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#0bbb81] transition-all text-xs"

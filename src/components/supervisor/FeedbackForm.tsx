@@ -3,7 +3,9 @@ import { motion } from 'motion/react';
 import { X } from 'lucide-react';
 import type { User, Feedback } from '../../types';
 import { FEEDBACK_AXES } from '../../types';
-import { nowTimestamp } from '../../services/dateUtils';
+import { Timestamp } from 'firebase/firestore';
+import { newId } from '../../services/ids';
+import { friendlyError } from '../../services/errors';
 import { feedbackService } from '../../services/feedbackService';
 import { useAuth } from '../../hooks/useAuth';
 import Avatar from '../shared/Avatar';
@@ -43,7 +45,7 @@ export default function FeedbackForm({ technicians, initialTechId, onClose, onSu
       return;
     }
     const name = selectedTech.name.split(' ')[0];
-    let resultText = '';
+    let resultText: string;
     
     if (aiFramework === 'cnv') {
       if (!cnvObservation.trim() || !cnvFeelingNeed.trim() || !cnvRequest.trim()) {
@@ -63,8 +65,11 @@ export default function FeedbackForm({ technicians, initialTechId, onClose, onSu
     toast.success('Feedback estruturado e inserido na descrição!');
   };
 
+  // React já escapa o texto na renderização; NÃO converter < > em entidades
+  // (gravaria "&lt;" literal no banco e nos PDFs). Apenas remove caracteres de controle.
   const sanitize = (str: string) =>
-    str.replace(/[<>]/g, (c) => (c === '<' ? '&lt;' : '&gt;')).trim();
+    // eslint-disable-next-line no-control-regex
+    str.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
 
   const handleDiscard = () => {
     if (description.trim().length > 0) {
@@ -96,7 +101,7 @@ export default function FeedbackForm({ technicians, initialTechId, onClose, onSu
 
     setLoading(true);
     try {
-      const feedbackId = 'fb_' + Date.now();
+      const feedbackId = newId('fb');
       const newFeedback: Feedback = {
         id: feedbackId,
         technicianId: techId,
@@ -106,15 +111,15 @@ export default function FeedbackForm({ technicians, initialTechId, onClose, onSu
         axis,
         description: sanitized,
         status: 'pending',
-        createdAt: nowTimestamp() as any
+        createdAt: Timestamp.now()
       };
 
       await feedbackService.addFeedback(newFeedback);
       toast.success('Feedback enviado com sucesso!');
       onSuccess();
       onClose();
-    } catch (err: any) {
-      toast.error(err.message || 'Erro ao enviar feedback.');
+    } catch (err) {
+      toast.error(friendlyError(err, 'Erro ao enviar feedback.'));
     } finally {
       setLoading(false);
     }

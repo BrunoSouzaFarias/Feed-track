@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Target, Calendar, PlusCircle, Loader2, ArrowRight } from 'lucide-react';
 import type { User, PDIGoal } from '../../types';
+import { Timestamp } from 'firebase/firestore';
 import { userService } from '../../services/userService';
+import { newId } from '../../services/ids';
+import { friendlyError } from '../../services/errors';
 import toast from 'react-hot-toast';
 
 interface PDIManagerProps {
@@ -17,18 +20,22 @@ export default function PDIManager({ technicians, onUpdate }: PDIManagerProps) {
   const [deadline, setDeadline] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const loadTechData = useCallback(async () => {
+    try {
+      setTechData(await userService.getUser(selectedTechId));
+    } catch (err) {
+      toast.error(friendlyError(err, 'Erro ao carregar o PDI do colaborador.'));
+    }
+  }, [selectedTechId]);
+
   useEffect(() => {
     if (selectedTechId) {
-      loadTechData();
+      void loadTechData();
     } else {
       setTechData(null);
     }
-  }, [selectedTechId, technicians]);
-
-  const loadTechData = async () => {
-    const data = await userService.getUser(selectedTechId);
-    setTechData(data);
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTechId, technicians, loadTechData]);
 
   const handleAddGoal = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,12 +47,12 @@ export default function PDIManager({ technicians, onUpdate }: PDIManagerProps) {
     setSubmitting(true);
     try {
       const newGoal: PDIGoal = {
-        id: 'pdi_' + Date.now(),
+        id: newId('pdi'),
         title,
         description,
         deadline,
         status: 'pending',
-        createdAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any // Simulated Firestore Timestamp
+        createdAt: Timestamp.now()
       };
 
       await userService.addPDIGoal(selectedTechId, newGoal);
@@ -55,8 +62,8 @@ export default function PDIManager({ technicians, onUpdate }: PDIManagerProps) {
       setDeadline('');
       await loadTechData();
       onUpdate();
-    } catch (err: any) {
-      toast.error('Erro ao adicionar objetivo.');
+    } catch (err) {
+      toast.error(friendlyError(err, 'Erro ao adicionar objetivo.'));
     } finally {
       setSubmitting(false);
     }
@@ -80,7 +87,7 @@ export default function PDIManager({ technicians, onUpdate }: PDIManagerProps) {
       await loadTechData();
       onUpdate();
     } catch (err) {
-      toast.error('Erro ao atualizar status.');
+      toast.error(friendlyError(err, 'Erro ao atualizar status.'));
     }
   };
 

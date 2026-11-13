@@ -363,7 +363,7 @@ export default function ExecutiveInsights({ technicians, feedbacks }: ExecutiveI
               </svg>
             </div>
             <h2 className="text-base font-extrabold text-zinc-900 dark:text-white tracking-tight">
-              Insights Executivos IA
+              Insights Executivos (regras automáticas)
             </h2>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
               Motor Local
@@ -631,7 +631,7 @@ export default function ExecutiveInsights({ technicians, feedbacks }: ExecutiveI
         transition={{ delay: 0.6 }}
         className="text-center text-[10px] text-zinc-400 dark:text-zinc-600 font-medium"
       >
-        🤖 Motor de IA local • Dados processados exclusivamente no dispositivo • Sem envio externo
+        Sugestões geradas por regras automáticas, processadas no dispositivo (sem envio externo). Apoio à decisão: não substituem a avaliação do gestor.
       </motion.p>
     </div>
   );

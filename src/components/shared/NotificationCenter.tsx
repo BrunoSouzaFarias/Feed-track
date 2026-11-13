@@ -24,7 +24,7 @@ import type { Feedback, User, SelfAssessment } from '../../types';
 const playCorporateChime = (muted: boolean) => {
   if (muted) return;
   try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextClass) return;
     const ctx = new AudioContextClass();
     const now = ctx.currentTime;
@@ -120,9 +120,20 @@ export default function NotificationCenter() {
 
   useEffect(() => {
     loadNotificationData();
-    // Poll every 12 seconds for local changes or background actions
-    const interval = setInterval(loadNotificationData, 12000);
-    return () => clearInterval(interval);
+    // Cada ciclo faz leituras no Firestore (custo): atualiza a cada 60 s e
+    // SOMENTE com a aba visível; ao voltar para a aba, atualiza na hora.
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') loadNotificationData();
+    }, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadNotificationData();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   // Compute notifications list dynamically

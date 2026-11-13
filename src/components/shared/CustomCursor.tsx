@@ -17,6 +17,7 @@ const CursorContext = createContext<CursorContextType>({
   setCursorText: () => {},
 });
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useCursor = () => useContext(CursorContext);
 
 export function CursorProvider({ children }: { children: React.ReactNode }) {

@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { Users, UserPlus, Edit, Eye, Target, ToggleLeft, ToggleRight, X, Loader2, Mail, User as UserIcon, Trash2, Download } from 'lucide-react';
 import type { User, Feedback } from '../../types';
 import { userService } from '../../services/userService';
+import { validatePassword } from '../../services/passwordPolicy';
+import { friendlyError } from '../../services/errors';
 import { useAuth } from '../../hooks/useAuth';
 import { exportService } from '../../services/exportService';
 import Avatar from '../shared/Avatar';
@@ -69,7 +71,7 @@ export default function TeamManagement({
       toast.success(`Técnico ${nextActive ? 'ativado' : 'inativado'} com sucesso!`);
       onRefresh();
     } catch (err) {
-      toast.error('Erro ao alternar status do colaborador.');
+      toast.error(friendlyError(err, 'Erro ao alternar status do colaborador.'));
     }
   };
 
@@ -98,7 +100,7 @@ export default function TeamManagement({
       setIsEditModalOpen(false);
       onRefresh();
     } catch (err) {
-      toast.error('Erro ao atualizar cadastro.');
+      toast.error(friendlyError(err, 'Erro ao atualizar cadastro.'));
     } finally {
       setUpdating(false);
     }
@@ -113,7 +115,7 @@ export default function TeamManagement({
       toast.success(`Colaborador "${tech.name}" excluído com sucesso!`);
       onRefresh();
     } catch (err) {
-      toast.error('Erro ao excluir colaborador.');
+      toast.error(friendlyError(err, 'Erro ao excluir colaborador.'));
     }
   };
 
@@ -121,6 +123,11 @@ export default function TeamManagement({
     e.preventDefault();
     if (!newName || !newEmail || !newPassword || !newPosition) {
       toast.error('Preencha todos os campos.');
+      return;
+    }
+    const policyError = validatePassword(newPassword);
+    if (policyError) {
+      toast.error(policyError);
       return;
     }
     setAdding(true);
@@ -134,8 +141,8 @@ export default function TeamManagement({
       setNewPassword('');
       setNewPosition('');
       onRefresh();
-    } catch (err: any) {
-      toast.error(err.message || 'Erro ao cadastrar novo colaborador.');
+    } catch (err) {
+      toast.error(friendlyError(err, 'Erro ao cadastrar novo colaborador.'));
     } finally {
       setAdding(false);
     }
@@ -197,7 +204,7 @@ export default function TeamManagement({
               </label>
               <input
                 type="password"
-                placeholder="Mínimo 6 caracteres"
+                placeholder="Mínimo 10 caracteres, com letras e números"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-transparent text-sm"
@@ -212,7 +219,7 @@ export default function TeamManagement({
                 </label>
                 <select
                   value={newTeam}
-                  onChange={(e) => setNewTeam(e.target.value as any)}
+                  onChange={(e) => setNewTeam(e.target.value as 'back-office' | 'teleservice')}
                   className="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-transparent dark:bg-zinc-900 text-sm cursor-pointer"
                 >
                   <option value="back-office">Back-office</option>
@@ -294,7 +301,7 @@ export default function TeamManagement({
                 </label>
                 <select
                   value={editTeam}
-                  onChange={(e) => setEditTeam(e.target.value as any)}
+                  onChange={(e) => setEditTeam(e.target.value as 'back-office' | 'teleservice')}
                   className="w-full px-3 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-transparent dark:bg-zinc-900 text-sm cursor-pointer"
                 >
                   <option value="back-office">Back-office</option>
@@ -355,7 +362,7 @@ export default function TeamManagement({
           {/* Team Filter */}
           <select
             value={selectedTeamFilter}
-            onChange={(e) => setSelectedTeamFilter(e.target.value as any)}
+            onChange={(e) => setSelectedTeamFilter(e.target.value as 'all' | 'back-office' | 'teleservice')}
             className="px-3.5 py-2 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-transparent text-sm text-zinc-900 dark:text-zinc-100 cursor-pointer"
           >
             <option value="all">Todos os Times</option>

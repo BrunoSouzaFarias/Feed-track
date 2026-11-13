@@ -4,6 +4,7 @@ import type { User, PDIGoal } from '../../types';
 import { userService } from '../../services/userService';
 import confetti from 'canvas-confetti';
 import toast from 'react-hot-toast';
+import { friendlyError } from '../../services/errors';
 
 interface MyPDIProps {
   userProfile: User;
@@ -52,7 +53,7 @@ export default function MyPDI({ userProfile, onRefresh }: MyPDIProps) {
       
       onRefresh();
     } catch (err) {
-      toast.error('Erro ao atualizar status do objetivo.');
+      toast.error(friendlyError(err, 'Erro ao atualizar status do objetivo.'));
     }
   };
 

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { lazy, Suspense, useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
@@ -8,15 +8,15 @@ import ProtectedRoute from './components/shared/ProtectedRoute';
 import ErrorBoundary from './components/shared/ErrorBoundary';
 import LoginForm from './components/auth/LoginForm';
 import RegisterForm from './components/auth/RegisterForm';
-import SupervisorDashboard from './components/supervisor/SupervisorDashboard';
-import TechnicianDashboard from './components/technician/TechnicianDashboard';
+const SupervisorDashboard = lazy(() => import('./components/supervisor/SupervisorDashboard'));
+const TechnicianDashboard = lazy(() => import('./components/technician/TechnicianDashboard'));
 import Preloader from './components/shared/Preloader';
 import InstallPrompt from './components/shared/InstallPrompt';
+import { sessionHint } from './services/sessionHint';
 
 export default function App() {
   const [showPreloader, setShowPreloader] = useState(() => {
-    return sessionStorage.getItem('feed_track_logged_in') !== 'true' &&
-      localStorage.getItem('feed_track_logged_in') !== 'true';
+    return !sessionHint.get();
   });
 
   return (
@@ -29,6 +29,7 @@ export default function App() {
         <InstallPrompt />
         <AuthProvider>
           <BrowserRouter>
+            <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-zinc-500">Carregando...</div>}>
             <Routes>
               {/* Public routes */}
               <Route path="/" element={<LoginForm />} />
@@ -58,9 +59,10 @@ export default function App() {
               }
             />
 
-            {/* Fallback to login */}
-            <Route path="*" element={<LoginForm />} />
+            {/* Rota desconhecida → volta ao início (login ou dashboard, conforme a sessão) */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
           <Toaster
             position="top-right"
             gutter={8}

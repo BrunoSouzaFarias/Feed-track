@@ -16,7 +16,7 @@ export function useFeedbacks(technicianId?: string) {
       // Sort by creation date descending
       data.sort((a, b) => parseDate(b.createdAt).getTime() - parseDate(a.createdAt).getTime());
       setFeedbacks(data);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Error loading feedbacks:", err);
       setError("Erro ao carregar feedbacks.");
     } finally {

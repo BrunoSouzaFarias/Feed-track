@@ -1,6 +1,6 @@
 import type { User, Feedback, SelfAssessment } from '../types';
 import { calculateSupervisorScores } from './radarUtils';
-import { parseDate } from './dateUtils';
+import { parseDate, daysSince } from './dateUtils';
 
 export interface AIInsight {
   id: string;
@@ -42,8 +42,7 @@ export const aiInsightsService = {
           return date > newest ? date : newest;
         }, new Date(0));
 
-        const diffTime = Math.abs(Date.now() - newestFbDate.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        const diffDays = daysSince(newestFbDate);
         if (diffDays > 20) {
           insights.push({
             id: `inactive-fb-${tech.uid}`,

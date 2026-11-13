@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { ClipboardList, Star, AlertCircle, Loader2 } from 'lucide-react';
 import type { User, SelfAssessment as SelfAssessmentType } from '../../types';
+import { newId } from '../../services/ids';
 import { userService } from '../../services/userService';
 import { Timestamp } from '../../firebase';
 import confetti from 'canvas-confetti';
 import toast from 'react-hot-toast';
+import { friendlyError } from '../../services/errors';
 
 interface SelfAssessmentProps {
   userProfile: User;
@@ -34,11 +36,7 @@ export default function SelfAssessment({ userProfile, onSuccess, onClose }: Self
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
   const [checking, setChecking] = useState(true);
 
-  useEffect(() => {
-    checkSubmission();
-  }, [userProfile.uid, currentPeriod]);
-
-  const checkSubmission = async () => {
+  const checkSubmission = useCallback(async () => {
     setChecking(true);
     try {
       const list = await userService.getSelfAssessments(userProfile.uid);
@@ -49,7 +47,11 @@ export default function SelfAssessment({ userProfile, onSuccess, onClose }: Self
     } finally {
       setChecking(false);
     }
-  };
+  }, [userProfile.uid, currentPeriod]);
+
+  useEffect(() => {
+    void checkSubmission();
+  }, [checkSubmission]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,7 +63,7 @@ export default function SelfAssessment({ userProfile, onSuccess, onClose }: Self
     setLoading(true);
     try {
       const assessment: SelfAssessmentType = {
-        id: 'sa_' + Date.now(),
+        id: newId('sa'),
         technicianId: userProfile.uid,
         period: currentPeriod,
         scores: {
@@ -89,7 +91,7 @@ export default function SelfAssessment({ userProfile, onSuccess, onClose }: Self
       onSuccess();
       onClose();
     } catch (err) {
-      toast.error('Erro ao enviar autoavaliação.');
+      toast.error(friendlyError(err, 'Erro ao enviar autoavaliação.'));
     } finally {
       setLoading(false);
     }

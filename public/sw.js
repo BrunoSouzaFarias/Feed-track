@@ -1,77 +1,63 @@
-const CACHE_NAME = 'feed-track-v1';
-const urlsToCache = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/favicon.svg',
-  '/icons.svg'
-];
+// Service worker — estratégia:
+//  - Navegação (HTML): REDE primeiro, cache só como fallback offline. Assim um
+//    deploy novo (ou correção de segurança) chega ao usuário imediatamente.
+//  - /assets/* (arquivos com hash do Vite, imutáveis): cache primeiro.
+//  - Todo o resto (APIs, manifest, checagens de conectividade): passa direto
+//    para a rede, sem cache.
+// Nunca interceptamos requisições cross-origin (Firebase/Google).
+const CACHE_VERSION = 'v2';
+const CACHE_NAME = `feed-track-${CACHE_VERSION}`;
+const SHELL_URL = '/index.html';
+const PRECACHE = ['/favicon.svg', '/icons.svg'];
 
-self.addEventListener('install', event => {
+self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(urlsToCache);
-    }).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME)
+      // allSettled: um recurso ausente não pode impedir a instalação do SW.
+      .then((cache) => Promise.allSettled(PRECACHE.map((url) => cache.add(url))))
+      .then(() => self.skipWaiting())
   );
 });
 
-self.addEventListener('activate', event => {
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.filter(name => name !== CACHE_NAME).map(name => caches.delete(name))
-      );
-    }).then(() => self.clients.claim())
+    caches.keys()
+      .then((names) => Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n))))
+      .then(() => self.clients.claim())
   );
 });
 
-self.addEventListener('fetch', event => {
-  // Handle navigation requests to serve index.html for client-side routing (SPAs)
-  if (event.request.mode === 'navigate') {
+self.addEventListener('fetch', (event) => {
+  const { request } = event;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+
+  if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request).catch(() => {
-        return caches.match('/index.html') || caches.match('/');
-      })
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(SHELL_URL, copy));
+          }
+          return response;
+        })
+        .catch(async () => (await caches.match(SHELL_URL)) || Response.error())
     );
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then(cachedResponse => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then(response => {
-        // Don't cache non-GET, non-200, or external/extension responses
-        if (
-          !response || 
-          response.status !== 200 || 
-          event.request.method !== 'GET' ||
-          !event.request.url.startsWith(self.location.origin)
-        ) {
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
           return response;
-        }
-        
-        const responseToCache = response.clone();
-        caches.open(CACHE_NAME).then(cache => {
-          cache.put(event.request, responseToCache);
-        });
-        
-        return response;
-      }).catch(() => {
-        // Fallback for offline errors
-      });
-    })
-  );
-});
-
-// Background Sync Event Listener
-self.addEventListener('sync', event => {
-  if (event.tag === 'sync-feed-track') {
-    event.waitUntil(
-      self.clients.matchAll({ type: 'window' }).then(clients => {
-        clients.forEach(client => {
-          client.postMessage({ type: 'SYNC_QUEUE' });
         });
       })
     );

@@ -5,7 +5,7 @@ import { BookOpen, Target, Award, PlusCircle, BarChart3, Milestone } from 'lucid
 import { useAuth } from '../../hooks/useAuth';
 import { useFeedbacks } from '../../hooks/useFeedbacks';
 import { userService } from '../../services/userService';
-import type { User } from '../../types';
+import type { User, SelfAssessment as SelfAssessmentRecord } from '../../types';
 import Header from '../shared/Header';
 import MyFeedbacks from './MyFeedbacks';
 import MyPDI from './MyPDI';
@@ -21,6 +21,7 @@ import Magnetic from '../shared/Magnetic';
 import Tilt3D from '../shared/Tilt3D';
 import PageTransition from '../shared/PageTransition';
 import { Skeleton } from '../shared/Skeleton';
+import { friendlyError } from '../../services/errors';
 
 export default function TechnicianDashboard() {
   const { user } = useAuth();
@@ -41,7 +42,7 @@ export default function TechnicianDashboard() {
   const [activeTab, setActiveTab] = useState<'feedbacks' | 'pdi' | 'radar' | 'badges' | 'timeline'>('feedbacks');
   const [isAssessmentOpen, setIsAssessmentOpen] = useState(false);
   const [hasAssessments, setHasAssessments] = useState(false);
-  const [latestSelfAssessment, setLatestSelfAssessment] = useState<any>(null);
+  const [latestSelfAssessment, setLatestSelfAssessment] = useState<SelfAssessmentRecord['scores'] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Stagger animation layouts
@@ -82,7 +83,7 @@ export default function TechnicianDashboard() {
         setLatestSelfAssessment(null);
       }
     } catch (err) {
-      toast.error('Erro ao carregar dados do perfil.');
+      toast.error(friendlyError(err, 'Erro ao carregar dados do perfil.'));
     } finally {
       setIsLoading(false);
     }
@@ -273,7 +274,7 @@ export default function TechnicianDashboard() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => setActiveTab(tab.id as typeof activeTab)}
                 className={`relative flex items-center gap-2 py-3 px-4 font-bold text-sm shrink-0 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-liberty focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-950 rounded-lg snap-start ${
                   isActive
                     ? 'text-liberty dark:text-liberty-sky'

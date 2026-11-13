@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { friendlyError } from '../services/errors';
 
 interface AsyncState<T> {
   data: T | null;
@@ -9,6 +10,8 @@ interface AsyncState<T> {
 /**
  * Hook que executa uma função assíncrona com timeout automático.
  * Se a promise não resolver em `timeoutMs`, define error com mensagem amigável.
+ * `fn` é lida de um ref, então não precisa de useCallback no chamador; a
+ * função é reexecutada quando `deps` mudam ou quando `retry()` é chamado.
  */
 export function useAsync<T>(
   fn: () => Promise<T>,
@@ -16,34 +19,36 @@ export function useAsync<T>(
   timeoutMs = 10_000
 ): AsyncState<T> & { retry: () => void } {
   const [state, setState] = useState<AsyncState<T>>({ data: null, loading: true, error: null });
-  const retryCount = useRef(0);
+  const [attempt, setAttempt] = useState(0);
+  const fnRef = useRef(fn);
+  useEffect(() => { fnRef.current = fn; });
 
-  const run = useCallback(async () => {
+  const depsKey = JSON.stringify(deps);
+
+  useEffect(() => {
+    let cancelled = false;
     setState({ data: null, loading: true, error: null });
 
     const timer = setTimeout(() => {
-      setState({ data: null, loading: false, error: 'Tempo de carregamento esgotado. Verifique sua conexão.' });
+      if (!cancelled) {
+        setState({ data: null, loading: false, error: 'Tempo de carregamento esgotado. Verifique sua conexão.' });
+      }
     }, timeoutMs);
 
-    try {
-      const result = await fn();
-      clearTimeout(timer);
-      setState({ data: result, loading: false, error: null });
-    } catch (err: any) {
-      clearTimeout(timer);
-      setState({ data: null, loading: false, error: err?.message ?? 'Erro ao carregar dados.' });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...deps, retryCount.current]);
+    fnRef.current().then(
+      (result) => {
+        clearTimeout(timer);
+        if (!cancelled) setState({ data: result, loading: false, error: null });
+      },
+      (err) => {
+        clearTimeout(timer);
+        if (!cancelled) setState({ data: null, loading: false, error: friendlyError(err, 'Erro ao carregar dados.') });
+      }
+    );
 
-  useEffect(() => {
-    run();
-  }, [run]);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [depsKey, attempt, timeoutMs]);
 
-  const retry = useCallback(() => {
-    retryCount.current += 1;
-    run();
-  }, [run]);
-
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
   return { ...state, retry };
 }

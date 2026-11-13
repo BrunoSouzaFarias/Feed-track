@@ -19,7 +19,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { userService } from '../../services/userService';
 import { exportService } from '../../services/exportService';
 import { auditService } from '../../services/auditService';
-import { parseDate } from '../../services/dateUtils';
+import { parseDate, daysSince } from '../../services/dateUtils';
 import { useSmoothScroll } from '../../hooks/useSmoothScroll';
 import { useScrollReveal, fadeUpVariants, staggerContainerVariants } from '../../hooks/useScrollReveal';
 import type { User, AuditLog } from '../../types';
@@ -39,6 +39,7 @@ import Magnetic from '../shared/Magnetic';
 import Tilt3D from '../shared/Tilt3D';
 import NotificationCenter from '../shared/NotificationCenter';
 import PageTransition from '../shared/PageTransition';
+import { friendlyError } from '../../services/errors';
 
 export default function SupervisorDashboard() {
   const { user, logout } = useAuth();
@@ -75,7 +76,7 @@ export default function SupervisorDashboard() {
       const logs = await auditService.getLogs();
       setAuditLogs(logs);
     } catch (err) {
-      toast.error("Erro ao carregar colaboradores.");
+      toast.error(friendlyError(err, "Erro ao carregar colaboradores."));
     } finally {
       setIsLoading(false);
     }
@@ -164,8 +165,7 @@ export default function SupervisorDashboard() {
         return date > newest ? date : newest;
       }, new Date(0));
 
-      const diffTime = Math.abs(Date.now() - newestFbDate.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const diffDays = daysSince(newestFbDate);
       if (diffDays > maxDays) {
         maxDays = diffDays;
         targetTech = t;
@@ -290,7 +290,7 @@ export default function SupervisorDashboard() {
                   <rect x="16" y="16" width="5" height="5" />
                 </svg>
               )},
-              { id: 'insights', label: 'IA Insights', icon: Sparkles },
+              { id: 'insights', label: 'Insights', icon: Sparkles },
               { id: 'climate', label: 'Relatórios', icon: FileBarChart },
               { id: 'export', label: 'Exportar Lote', icon: FileSpreadsheet },
               { id: 'compliance', label: 'Auditoria', icon: Shield }
@@ -300,7 +300,7 @@ export default function SupervisorDashboard() {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id as any)}
+                  onClick={() => setActiveTab(item.id as typeof activeTab)}
                   className={`relative flex items-center gap-3 px-4 py-2.5 rounded font-bold text-xs transition-all cursor-pointer text-left overflow-hidden ${
                     isActive
                       ? 'text-[#006c49] dark:text-[#4bdfa1]'
@@ -729,10 +729,10 @@ export default function SupervisorDashboard() {
               technicians={technicians}
               feedbacks={feedbacks}
               onRefresh={loadData}
-              onSelectTechnicianFeedbacks={(_techName) => {
+              onSelectTechnicianFeedbacks={() => {
                 setActiveTab('feedbacks');
               }}
-              onSelectTechnicianPDI={(_techId) => {
+              onSelectTechnicianPDI={() => {
                 setActiveTab('pdis');
               }}
             />
