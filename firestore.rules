@@ -131,6 +131,22 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
+    // signingKeys — âncora das chaves públicas de assinatura (1ª chave vence)
+    // ------------------------------------------------------------------
+    match /signingKeys/{userId} {
+      allow read: if isOwner(userId) || isSupervisor();
+      allow create: if isOwner(userId) && isActiveUser() &&
+        request.resource.data.keys().hasOnly(['uid','publicKey','createdAt']) &&
+        request.resource.data.uid == userId &&
+        request.resource.data.publicKey is string &&
+        request.resource.data.publicKey.size() > 0 && request.resource.data.publicKey.size() <= 1024 &&
+        request.resource.data.createdAt == request.time;
+      // Imutável: trocar de chave/dispositivo exige reset por um supervisor.
+      allow update: if false;
+      allow delete: if isSupervisor();
+    }
+
+    // ------------------------------------------------------------------
     // auditLogs — imutáveis; criação só com evidência real no banco
     // ------------------------------------------------------------------
     match /auditLogs/{logId} {
@@ -138,12 +154,16 @@ service cloud.firestore {
         (isActiveUser() && resource.data.technicianId == request.auth.uid);
 
       allow create: if isActiveUser() &&
-        request.resource.data.keys().hasOnly(['id','timestamp','eventType','entityId','technicianId','technicianName','details','hash','signature','publicKey','createdAt']) &&
+        request.resource.data.keys().hasOnly(['id','timestamp','eventType','entityId','technicianId','technicianName','details','hash','signature','publicKey','signerId','createdAt']) &&
         request.resource.data.id == logId &&
         request.resource.data.createdAt == request.time &&
         request.resource.data.hash.matches('^[0-9a-f]{64}$') &&
         request.resource.data.signature is string && request.resource.data.signature.size() > 0 && request.resource.data.signature.size() <= 512 &&
         request.resource.data.publicKey is string && request.resource.data.publicKey.size() <= 1024 &&
+        // Quem assina é quem está logado e a chave usada TEM de ser a ancorada para ele.
+        request.resource.data.signerId == request.auth.uid &&
+        exists(/databases/$(database)/documents/signingKeys/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/signingKeys/$(request.auth.uid)).data.publicKey == request.resource.data.publicKey &&
         (
           // Assinatura de feedback: o feedback precisa existir, ser do
           // técnico informado e já estar assinado (signedAt gravado antes).

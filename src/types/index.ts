@@ -73,6 +73,8 @@ export interface AuditLog {
   hash: string;
   signature: string;
   publicKey: string;
+  /** uid de quem assinou (técnico ou supervisor). A chave pública é ancorada em signingKeys/{signerId}. */
+  signerId: string;
 }
 
 export const FEEDBACK_AXES = [

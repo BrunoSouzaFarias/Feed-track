@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { auditService } from '../../services/auditService';
+import { isFirebaseMock } from '../../services/env';
 import { verifySignature } from '../../services/signatureService';
 import { Shield, Search, CheckCircle, FileText, Key, ShieldCheck, Download } from 'lucide-react';
 import type { AuditLog } from '../../types';
@@ -17,7 +19,14 @@ export default function ComplianceAudit({ logs, onRefresh }: ComplianceAuditProp
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all(logs.map(async (l) => [l.id, await verifySignature(l.hash, l.signature, l.publicKey)] as const))
+    // Válida = assinatura confere com a chave do log E (quando há registro central) essa
+    // chave é a ANCORADA para o signatário. Falha ao ler a âncora não marca nada como válido.
+    auditService.getAnchoredKeys()
+      .then((anchored) => Promise.all(logs.map(async (l) => {
+        const sigOk = await verifySignature(l.hash, l.signature, l.publicKey);
+        const anchorOk = isFirebaseMock || anchored[l.signerId ?? l.technicianId] === l.publicKey;
+        return [l.id, sigOk && anchorOk] as const;
+      })))
       .then((entries) => { if (!cancelled) setValidity(Object.fromEntries(entries)); })
       .catch(() => { if (!cancelled) setValidity({}); });
     return () => { cancelled = true; };
@@ -132,7 +141,7 @@ export default function ComplianceAudit({ logs, onRefresh }: ComplianceAuditProp
                               {log.technicianName}
                               {validity[log.id] !== undefined && (
                                 <span
-                                  title={validity[log.id] ? 'Assinatura criptográfica verificada' : 'Assinatura INVÁLIDA para este hash'}
+                                  title={validity[log.id] ? 'Assinatura verificada e chave ancorada no servidor' : 'Assinatura inválida OU chave diferente da registrada'}
                                   className={`ml-2 text-[9px] font-bold uppercase ${validity[log.id] ? 'text-emerald-600' : 'text-red-600'}`}
                                 >
                                   {validity[log.id] ? '✓ válida' : '✗ inválida'}

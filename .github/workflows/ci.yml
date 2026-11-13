@@ -24,6 +24,7 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run test:rules
+      - run: npm run test:functions
       - run: npm run build
         env:
           VITE_FIREBASE_API_KEY: ci-placeholder

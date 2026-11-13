@@ -10,7 +10,7 @@ A autorização **real** está em `firestore.rules` (o cliente é público e nã
 | Conteúdo do feedback imutável para o técnico (só `status/readAt/signedAt`) | `feedbacks.update` |
 | Esquema/limites validados no servidor (tipos, tamanhos, notas 1–5, período) | regras de `create` |
 | Auditoria imutável, com `createdAt` do servidor e evidência (feedback existente e assinado) | `auditLogs` |
-| Assinatura ECDSA P-256 real, chave privada não-exportável | `signatureService.ts` |
+| Assinatura ECDSA P-256 real, chave privada não-exportável, chave pública ancorada no servidor | `signatureService.ts`, `signingKeys` nas regras |
 | Nenhum dado pessoal em `localStorage` com Firebase real; limpeza no boot/logout | `legacyCleanup.ts`, serviços |
 | Modo mock bloqueado em produção | `services/env.ts`, `main.tsx` |
 | Headers (CSP, HSTS, X-Frame-Options, nosniff, Referrer/Permissions-Policy) | `firebase.json` |
@@ -18,7 +18,7 @@ A autorização **real** está em `firestore.rules` (o cliente é público e nã
 | Senha ≥ 10 caracteres com letras e números | `passwordPolicy.ts` |
 | Service worker: rede primeiro para HTML; cache só de `/assets/*` com hash | `public/sw.js` |
 
-Testes das regras: `npm run test:rules` (15 casos; contra as regras antigas, 8 falham — os mesmos que provam as brechas corrigidas).
+Testes: `npm run test:rules` (21 casos de regras; contra as regras antigas, 8 dos primeiros 15 falham — as brechas corrigidas) e `npm run test:functions` (9 casos executando as Cloud Functions reais nos emuladores de Auth, Firestore e Functions).
 
 ## Checklist de deploy (itens que NÃO estão no código)
 - [ ] **App Check** com reCAPTCHA v3: defina `VITE_FIREBASE_APPCHECK_SITE_KEY` e ative a imposição para Firestore e Auth no console.
@@ -32,7 +32,7 @@ Testes das regras: `npm run test:rules` (15 casos; contra as regras antigas, 8 f
 
 ## Riscos residuais (conhecidos)
 1. **Badges e progresso do PDI**: no modo padrão são gravados pelo cliente do técnico (as regras impedem remover itens). **Fechado pelo modo estrito**: implante `/functions` + `firestore.strict.rules` (ver `docs/DEPLOY.md`); aí só o servidor concede badges e valida transições.
-2. **Assinatura digital**: sem âncora central de chaves públicas não há não-repúdio jurídico forte (ver `docs/subagent/audit_trail_compliance.md`).
+2. **Assinatura digital**: a chave pública de cada usuário é **ancorada no servidor** (`signingKeys/{uid}`, imutável, a 1ª vence) e as regras só aceitam log assinado com a chave ancorada de quem está logado. Resta o limite de que a posse da chave é por dispositivo (troca de dispositivo exige reset por supervisor) e de que isto não substitui certificado ICP-Brasil se houver exigência legal específica.
 3. **Exclusão de usuário**: com `VITE_USE_CLOUD_FUNCTIONS=true`, `deleteUserAccount` remove também a conta do Auth. Sem as functions, só perfil/feedbacks/autoavaliações são apagados e o login é recusado por falta de perfil. Logs de auditoria são mantidos por serem imutáveis (base legal: obrigação de conformidade).
 4. **Multi-tenant**: todo supervisor vê todos os colaboradores. Se houver várias equipes/empresas, é preciso modelar `teamId`/`orgId` nas regras.
 5. **Primeiro supervisor** é promovido manualmente no console (não há como se auto-promover pelo app — é intencional).

@@ -14,6 +14,7 @@
 npm ci
 npm run ci                 # typecheck + lint + testes + build
 npm run test:rules         # regras do Firestore no emulador (requer Java)
+npm run test:functions     # executa as Cloud Functions nos emuladores (Auth+Firestore+Functions)
 firebase deploy --only firestore:rules,firestore:indexes,hosting
 ```
 O `firebase.json` já publica CSP, HSTS, `X-Frame-Options`, cache imutável para `/assets/**` e `no-cache` para `index.html` e `sw.js`.

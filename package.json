@@ -13,7 +13,8 @@
     "test:rules": "firebase emulators:exec --only firestore --project demo-feed-track \"vitest run --config vitest.rules.config.ts\"",
     "ci": "npm run typecheck && npm run lint && npm test && npm run functions:typecheck && npm run build",
     "rules:strict": "node scripts/gen-strict-rules.mjs",
-    "functions:typecheck": "npm --prefix functions run typecheck"
+    "functions:typecheck": "npm --prefix functions run typecheck",
+    "test:functions": "npm --prefix functions run build && firebase emulators:exec --only auth,firestore,functions --project demo-feed-track \"vitest run --config vitest.functions.config.ts\""
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
@@ -42,6 +43,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "fake-indexeddb": "^6.2.8",
+    "firebase-admin": "^13.10.0",
     "firebase-tools": "^15.36.0",
     "globals": "^17.6.0",
     "postcss": "^8.5.15",

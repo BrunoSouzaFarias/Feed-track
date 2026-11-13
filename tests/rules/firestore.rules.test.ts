@@ -20,7 +20,7 @@ const feedback = (id: string, over: Record<string, unknown> = {}) => ({
 const auditLog = (id: string, over: Record<string, unknown> = {}) => ({
   id, timestamp: new Date().toISOString(), eventType: 'feedback_signature', entityId: 'fb1',
   technicianId: 'tech1', technicianName: 'tech1', details: 'x',
-  hash: 'a'.repeat(64), signature: 'c2ln', publicKey: '{}', createdAt: serverTimestamp(), ...over,
+  hash: 'a'.repeat(64), signature: 'c2ln', publicKey: '{}', signerId: 'tech1', createdAt: serverTimestamp(), ...over,
 });
 
 const asSup = () => env.authenticatedContext('sup1', { email: 'sup1@liberty.com' }).firestore();
@@ -44,6 +44,9 @@ beforeEach(async () => {
       structuredPDI: [{ id: 'g1', title: 'g', description: 'd', deadline: '2026-12-01', status: 'pending', createdAt: ts() }],
     }));
     await setDoc(doc(db, 'users/tech2'), user('tech2'));
+    // Chaves ancoradas (publicKey '{}' é a usada pelos logs de teste)
+    await setDoc(doc(db, 'signingKeys/sup1'), { uid: 'sup1', publicKey: '{}', createdAt: ts() });
+    await setDoc(doc(db, 'signingKeys/tech1'), { uid: 'tech1', publicKey: '{}', createdAt: ts() });
     await setDoc(doc(db, 'feedbacks/fb1'), feedback('fb1'));
     await setDoc(doc(db, 'feedbacks/fb2'), feedback('fb2', { status: 'read', readAt: ts(), signedAt: ts() }));
   });
@@ -147,10 +150,37 @@ describe('auditLogs', () => {
     await assertFails(deleteDoc(doc(asTech(), 'auditLogs/c1')));
   });
 
+  it('âncora: a chave do log TEM de ser a registrada; signerId = quem está logado', async () => {
+    await assertFails(setDoc(doc(asTech(), 'auditLogs/k1'), auditLog('k1', { entityId: 'fb2', publicKey: '{"outra":"chave"}' })));
+    await assertFails(setDoc(doc(asTech(), 'auditLogs/k2'), auditLog('k2', { entityId: 'fb2', signerId: 'sup1' })));
+    await assertSucceeds(setDoc(doc(asTech(), 'auditLogs/k3'), auditLog('k3', { entityId: 'fb2' })));
+    // sem chave ancorada → sem log
+    await env.withSecurityRulesDisabled(async (c) => { await deleteDoc(doc(c.firestore(), 'signingKeys/tech1')); });
+    await assertFails(setDoc(doc(asTech(), 'auditLogs/k4'), auditLog('k4', { entityId: 'fb2' })));
+  });
+
   it('conclusão de PDI: o próprio técnico ou supervisor', async () => {
     await assertSucceeds(setDoc(doc(asTech(), 'auditLogs/d1'), auditLog('d1', { eventType: 'pdi_goal_completion', entityId: 'g1' })));
-    await assertSucceeds(setDoc(doc(asSup(), 'auditLogs/d2'), auditLog('d2', { eventType: 'pdi_goal_completion', entityId: 'g1' })));
+    await assertSucceeds(setDoc(doc(asSup(), 'auditLogs/d2'), auditLog('d2', { eventType: 'pdi_goal_completion', entityId: 'g1', signerId: 'sup1' })));
     await assertFails(setDoc(doc(asOther(), 'auditLogs/d3'), auditLog('d3', { eventType: 'pdi_goal_completion', entityId: 'g1' })));
+  });
+});
+
+describe('signingKeys (âncora de chaves)', () => {
+  const key = (uid: string, over: Record<string, unknown> = {}) => ({ uid, publicKey: '{"k":1}', createdAt: serverTimestamp(), ...over });
+  it('cria uma vez, só para si, com hora do servidor; é imutável', async () => {
+    await assertSucceeds(setDoc(doc(asOther(), 'signingKeys/tech2'), key('tech2')));
+    await assertFails(setDoc(doc(asOther(), 'signingKeys/tech2'), key('tech2', { publicKey: '{"k":2}' }))); // sobrescrever
+    await assertFails(updateDoc(doc(asOther(), 'signingKeys/tech2'), { publicKey: '{"k":3}' }));
+    await assertFails(setDoc(doc(asOther(), 'signingKeys/tech1x'), key('tech1x')));                          // em nome de outro
+    await assertFails(setDoc(doc(asOther(), 'signingKeys/tech2b'), key('tech2b', { createdAt: ts() })));
+  });
+  it('leitura: dono e supervisor; reset só por supervisor', async () => {
+    await assertSucceeds(getDoc(doc(asTech(), 'signingKeys/tech1')));
+    await assertSucceeds(getDoc(doc(asSup(), 'signingKeys/tech1')));
+    await assertFails(getDoc(doc(asOther(), 'signingKeys/tech1')));
+    await assertFails(deleteDoc(doc(asTech(), 'signingKeys/tech1')));
+    await assertSucceeds(deleteDoc(doc(asSup(), 'signingKeys/tech1')));
   });
 });
 

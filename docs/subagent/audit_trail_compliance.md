@@ -42,7 +42,9 @@ Implementada em `src/services/signatureService.ts`:
 - A assinatura (base64) é feita sobre o hash e gravada junto com a **chave pública (JWK)** no log.
 - `verifySignature(hash, assinatura, chavePública)` valida a assinatura; a tela de Compliance exibe o selo “válida/inválida” de cada evento.
 
-**Limites conhecidos (honestidade técnica):** a chave pública vem no próprio log, e não há registro central (âncora) das chaves por usuário. A assinatura prova integridade do registro e posse da chave daquele dispositivo, **não** não-repúdio jurídico forte. Para isso, ancore as chaves públicas no servidor (ex.: Cloud Function) ou use certificado ICP-Brasil.
+**Âncora de chaves:** na primeira assinatura, a chave pública do usuário é registrada em `signingKeys/{uid}` (imutável; só um supervisor pode apagar para reset, ex.: troca de dispositivo). As regras só aceitam um log cujo `signerId` seja o usuário logado e cuja `publicKey` seja igual à ancorada. A tela de Compliance só mostra “✓ válida” quando a assinatura confere **e** a chave é a ancorada.
+
+**Limites conhecidos:** a posse da chave é por dispositivo (IndexedDB) e a “primeira chave vence”; isto prova integridade e autoria perante o sistema, mas não substitui certificado ICP-Brasil se houver exigência legal específica.
 
 ### 3.3. Garantias aplicadas pelo servidor (`firestore.rules`)
 - Logs são **imutáveis** (sem update/delete).

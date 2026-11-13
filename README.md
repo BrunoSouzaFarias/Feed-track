@@ -40,6 +40,7 @@ npm run typecheck    # tsc -b
 npm run lint         # eslint
 npm test             # testes unitários (vitest)
 npm run test:rules   # testes das regras do Firestore (emulador; requer Java)
+npm run test:functions # executa as Cloud Functions nos emuladores
 npm run ci           # typecheck + lint + test + build
 ```
 
