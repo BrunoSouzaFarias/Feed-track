@@ -21,6 +21,13 @@ A autorização **real** está em `firestore.rules` (o cliente é público e nã
 Testes: `npm run test:rules` (21 casos de regras; contra as regras antigas, 8 dos primeiros 15 falham — as brechas corrigidas) e `npm run test:functions` (9 casos executando as Cloud Functions reais nos emuladores de Auth, Firestore e Functions).
 
 ## Checklist de deploy (itens que NÃO estão no código)
+> **Automatizado:** `scripts/firebase-console-setup.mjs` aplica via API oficial a política de senha (servidor), domínios autorizados, restrição da API key, App Check e, opcionalmente, o bloqueio do auto-cadastro. Roda em *dry-run* por padrão:
+> ```bash
+> npm run setup:console -- --project SEU_PROJETO --domains app.empresa.com --referrers "https://app.empresa.com/*" --api-key AIza... --enforce-appcheck
+> GOOGLE_OAUTH_ACCESS_TOKEN="$(gcloud auth print-access-token)" npm run setup:console -- --project SEU_PROJETO ... --apply
+> ```
+> Precisa de uma conta com permissão no projeto; registre antes o app web no App Check (reCAPTCHA v3) e defina `VITE_FIREBASE_APPCHECK_SITE_KEY`.
+
 - [ ] **App Check** com reCAPTCHA v3: defina `VITE_FIREBASE_APPCHECK_SITE_KEY` e ative a imposição para Firestore e Auth no console.
 - [ ] **Firebase Auth → Política de senha**: exigir 10+ caracteres e complexidade (o cliente valida, o servidor deve impor).
 - [ ] **Domínios autorizados** do Auth: somente o(s) domínio(s) de produção.

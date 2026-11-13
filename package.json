@@ -14,7 +14,8 @@
     "ci": "npm run typecheck && npm run lint && npm test && npm run functions:typecheck && npm run build",
     "rules:strict": "node scripts/gen-strict-rules.mjs",
     "functions:typecheck": "npm --prefix functions run typecheck",
-    "test:functions": "npm --prefix functions run build && firebase emulators:exec --only auth,firestore,functions --project demo-feed-track \"vitest run --config vitest.functions.config.ts\""
+    "test:functions": "npm --prefix functions run build && firebase emulators:exec --only auth,firestore,functions --project demo-feed-track \"vitest run --config vitest.functions.config.ts\"",
+    "setup:console": "node scripts/firebase-console-setup.mjs"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
