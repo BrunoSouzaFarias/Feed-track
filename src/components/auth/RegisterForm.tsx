@@ -7,6 +7,8 @@ import { sessionHint } from '../../services/sessionHint';
 import { friendlyError } from '../../services/errors';
 import { validatePassword } from '../../services/passwordPolicy';
 import { useSmoothScroll } from '../../hooks/useSmoothScroll';
+import { useDataEffect } from '../../hooks/useDataEffect';
+import { signupService } from '../../services/signupService';
 import toast from 'react-hot-toast';
 import Magnetic from '../shared/Magnetic';
 import Tilt3D from '../shared/Tilt3D';
@@ -18,6 +20,9 @@ export default function RegisterForm() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [team, setTeam] = useState<'back-office' | 'teleservice'>('back-office');
   const [position, setPosition] = useState('');
+  // null = verificando. Falso = cadastro público desativado por um supervisor (aplicado também nas regras do servidor).
+  const [signupOpen, setSignupOpen] = useState<boolean | null>(null);
+  useDataEffect(() => signupService.isOpen(), setSignupOpen, () => setSignupOpen(true), []);
   const [loading, setLoading] = useState(false);
   const { user, loading: authLoading, register } = useAuth();
   const navigate = useNavigate();
@@ -46,6 +51,10 @@ export default function RegisterForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (signupOpen === false) {
+      toast.error('O cadastro público está desativado. Peça a um supervisor para criar sua conta.');
+      return;
+    }
     if (!name || !email || !password || !confirmPassword || !position) {
       toast.error('Preencha todos os campos.');
       return;
@@ -166,6 +175,12 @@ export default function RegisterForm() {
             variants={itemVariants}
           >
           
+          {signupOpen === false && (
+            <div role="alert" className="mb-4 p-3 rounded-lg border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300 text-xs font-semibold">
+              O cadastro público está desativado. Peça a um supervisor para criar sua conta.
+            </div>
+          )}
+
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <motion.div variants={itemVariants}>
@@ -291,7 +306,7 @@ export default function RegisterForm() {
             <Magnetic strength={0.12} cursorText="Cadastrar" className="w-full block">
               <motion.button
                 type="submit"
-                disabled={loading}
+                disabled={loading || signupOpen === false}
                 className="w-full py-2.5 mt-2 bg-[#0bbb81] hover:bg-[#0bbb81]/90 text-white rounded-lg font-bold transition-all flex items-center justify-center gap-2 text-xs disabled:opacity-50 cursor-pointer shadow-md"
                 variants={itemVariants}
                 whileHover={{ scale: 1.02, y: -1 }}

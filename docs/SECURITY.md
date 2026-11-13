@@ -33,7 +33,8 @@ Testes: `npm run test:rules` (21 casos de regras; contra as regras antigas, 8 do
 - [ ] **Firebase Auth → Política de senha**: exigir 10+ caracteres e complexidade (o cliente valida, o servidor deve impor).
 - [ ] **Domínios autorizados** do Auth: somente o(s) domínio(s) de produção.
 - [ ] **Restrições da API key** (HTTP referrers) no Google Cloud Console.
-- [ ] **Cadastro público**: se o sistema é interno, restrinja por domínio (`VITE_ALLOWED_EMAIL_DOMAIN`, defesa em profundidade) **e** desative o auto-cadastro ou use uma *blocking function* / convites.
+- [x] **Cadastro público**: há um interruptor aplicado **pelas regras do servidor** (`config/signup { open }`). Um supervisor (sem escopo de equipe) abre/fecha em *Configurações → Cadastro público*; fechado, o auto-cadastro é negado no Firestore e o app desfaz a conta criada no Auth, restando só a criação por supervisor. Padrão: aberto (compatível). Para sistemas internos, feche-o e/ou restrinja por domínio (`VITE_ALLOWED_EMAIL_DOMAIN`).
+  - Limite: a conta chega a existir no Firebase Auth por instantes antes do desfazer; para bloqueá-la na origem use `npm run setup:console -- --disable-signup`.
 - [ ] **E-mail verificado**: o app envia o e-mail de verificação, mas não bloqueia o acesso sem ele (evita travar contas existentes). Para exigir, adicione `request.auth.token.email_verified == true` às regras.
 - [ ] Backups/exportação agendada do Firestore e alertas de uso.
 - [ ] Monitoramento: defina `VITE_ERROR_REPORT_URL` (ver `docs/DEPLOY.md`); sem ela, erros só vão para o console.

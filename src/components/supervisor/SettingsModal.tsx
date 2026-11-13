@@ -1,6 +1,11 @@
 import { motion, AnimatePresence } from 'motion/react';
 import type { User } from '../../types';
+import { useState } from 'react';
+import toast from 'react-hot-toast';
 import { useModalA11y } from '../../hooks/useModalA11y';
+import { useDataEffect } from '../../hooks/useDataEffect';
+import { signupService } from '../../services/signupService';
+import { friendlyError } from '../../services/errors';
 import { isFirebaseMock } from '../../services/env';
 
 interface SettingsModalProps {
@@ -20,6 +25,29 @@ function resetMockData() {
 
 export default function SettingsModal({ open, user, onClose }: SettingsModalProps) {
   const dialogRef = useModalA11y<HTMLDivElement>(onClose, open);
+  // Interruptor do cadastro público: só supervisor SEM escopo de equipe (as regras também exigem).
+  const canToggleSignup = user?.role === 'supervisor' && !user.managedTeam;
+  const [signupOpen, setSignupOpen] = useState<boolean | null>(null);
+  const [savingSignup, setSavingSignup] = useState(false);
+  useDataEffect(
+    () => (open && canToggleSignup ? signupService.isOpen() : Promise.resolve(null)),
+    setSignupOpen,
+    () => setSignupOpen(null),
+    [open, canToggleSignup]
+  );
+  const toggleSignup = async () => {
+    if (signupOpen === null) return;
+    setSavingSignup(true);
+    try {
+      await signupService.setOpen(!signupOpen);
+      setSignupOpen(!signupOpen);
+      toast.success(!signupOpen ? 'Cadastro público ativado.' : 'Cadastro público desativado: novas contas só por supervisor.');
+    } catch (err) {
+      toast.error(friendlyError(err, 'Não foi possível alterar o cadastro público.'));
+    } finally {
+      setSavingSignup(false);
+    }
+  };
   return (
     <>
       <AnimatePresence>
@@ -75,6 +103,26 @@ export default function SettingsModal({ open, user, onClose }: SettingsModalProp
                   {user?.position} ({user?.team})
                 </p>
               </div>
+
+              {canToggleSignup && signupOpen !== null && (
+                <div className="pt-2 border-t border-zinc-150 dark:border-zinc-800 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-zinc-500 uppercase tracking-wider text-[10px] mb-1">Cadastro público (/register)</p>
+                    <p className="text-zinc-600 dark:text-zinc-300">{signupOpen ? 'Aberto: qualquer pessoa pode criar conta de técnico.' : 'Fechado: contas só por supervisor.'}</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={signupOpen}
+                    aria-label="Cadastro público"
+                    disabled={savingSignup}
+                    onClick={toggleSignup}
+                    className="px-3 py-2 rounded font-bold border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50 cursor-pointer shrink-0"
+                  >
+                    {signupOpen ? 'Fechar' : 'Abrir'}
+                  </button>
+                </div>
+              )}
 
               <div className="pt-2 border-t border-zinc-150 dark:border-zinc-800">
                 <p className="font-semibold text-zinc-500 uppercase tracking-wider text-[10px] mb-1">Banco de Dados</p>

@@ -53,6 +53,26 @@ service cloud.firestore {
       return v in ['back-office', 'teleservice'];
     }
 
+    // Interruptor do cadastro público: config/signup { open: boolean }.
+    // Ausente = aberto (padrão). Fechado => só supervisor cria perfis (convite).
+    function signupOpen() {
+      return !exists(/databases/$(database)/documents/config/signup) ||
+        get(/databases/$(database)/documents/config/signup).data.get('open', true) == true;
+    }
+
+    // ------------------------------------------------------------------
+    // config
+    // ------------------------------------------------------------------
+    match /config/signup {
+      allow read: if true; // só um booleano; a tela de cadastro precisa lê-lo ANTES do login
+      allow create, update: if isFullSupervisor() &&
+        request.resource.data.keys().hasOnly(['open','updatedAt','updatedBy']) &&
+        request.resource.data.open is bool &&
+        request.resource.data.updatedBy == request.auth.uid &&
+        request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
+
     // ------------------------------------------------------------------
     // users
     // ------------------------------------------------------------------
@@ -64,7 +84,7 @@ service cloud.firestore {
       // Somente um supervisor pode criar outro perfil arbitrário.
       allow create: if (supervisorOf(request.resource.data.team) &&
          (isFullSupervisor() || request.resource.data.role == 'technician')) ||
-        (isOwner(userId) &&
+        (isOwner(userId) && signupOpen() &&
          request.resource.data.keys().hasOnly(['uid','name','email','role','team','position','photoURL','phone','active','createdAt','badges','structuredPDI']) &&
          request.resource.data.uid == userId &&
          request.resource.data.role == 'technician' &&

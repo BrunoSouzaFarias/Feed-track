@@ -258,3 +258,26 @@ describe('default deny', () => {
     await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'users/tech1')));
   });
 });
+
+describe('interruptor de cadastro público (config/signup)', () => {
+  const setSignup = (db: ReturnType<typeof asSup>, open: boolean) =>
+    setDoc(doc(db, 'config/signup'), { open, updatedAt: serverTimestamp(), updatedBy: 'sup1' });
+  const newUserDb = () => env.authenticatedContext('new9', { email: 'new9@liberty.com' }).firestore();
+
+  it('por padrão (sem documento) o auto-cadastro está aberto', async () => {
+    await assertSucceeds(setDoc(doc(newUserDb(), 'users/new9'), user('new9')));
+  });
+  it('fechado: auto-cadastro é negado, mas supervisor ainda cria colaboradores', async () => {
+    await assertSucceeds(setSignup(asSup(), false));
+    await assertFails(setDoc(doc(newUserDb(), 'users/new9'), user('new9')));
+    await assertSucceeds(setDoc(doc(asSup(), 'users/novoPeloSup'), user('novoPeloSup')));
+    await assertSucceeds(setSignup(asSup(), true));
+    await assertSucceeds(setDoc(doc(newUserDb(), 'users/new9'), user('new9')));
+  });
+  it('só supervisor SEM escopo altera o interruptor; leitura é pública', async () => {
+    await assertFails(setSignup(asTech(), false));
+    await assertFails(setDoc(doc(asSup(), 'config/signup'), { open: false, updatedAt: serverTimestamp(), updatedBy: 'outro' }));
+    await assertFails(setDoc(doc(asSup(), 'config/signup'), { open: 'nao', updatedAt: serverTimestamp(), updatedBy: 'sup1' }));
+    await assertSucceeds(getDoc(doc(env.unauthenticatedContext().firestore(), 'config/signup')));
+  });
+});

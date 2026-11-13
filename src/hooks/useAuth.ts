@@ -21,6 +21,7 @@ import { sessionHint } from '../services/sessionHint';
 import { purgeLegacyLocalData } from '../services/legacyCleanup';
 import { scope } from '../services/scope';
 import { validatePassword } from '../services/passwordPolicy';
+import { signupService } from '../services/signupService';
 import toast from 'react-hot-toast';
 
 type Team = 'back-office' | 'teleservice';
@@ -214,6 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       if (isFirebaseMock) {
+        if (!(await signupService.isOpen())) throw new AppError('O cadastro público está desativado. Peça a um supervisor para criar sua conta.');
         const users = readMockUsers();
         if (users.some((u) => u.email.toLowerCase() === email.trim().toLowerCase())) {
           throw new AppError('Este e-mail já está cadastrado.');

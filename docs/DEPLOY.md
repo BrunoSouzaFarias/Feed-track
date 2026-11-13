@@ -44,6 +44,9 @@ firebase deploy --only firestore:rules,hosting
 3. Faça o deploy de `firestore.indexes.json` (há um índice novo para `auditLogs`).
 Sem `managedTeam` o supervisor continua gerenciando todas as equipes.
 
+## Cadastro público
+Controlado em *Configurações → Cadastro público* (supervisor sem escopo de equipe). O estado fica em `config/signup` e é aplicado pelas regras do Firestore. Sem o documento, o cadastro está aberto.
+
 ## Primeiro supervisor
 1. Crie a conta em `/register` (nasce como técnico).
 2. No console do Firestore, altere `users/{uid}.role` para `supervisor`.
