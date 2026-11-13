@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 
 interface AvatarProps {
   name: string;
@@ -8,12 +8,9 @@ interface AvatarProps {
 }
 
 export default function Avatar({ name, photoURL, size = 'md', className = '' }: AvatarProps) {
-  const [imageFailed, setImageFailed] = useState(false);
-
-  // Reset the failure flag whenever the source changes (e.g. a new photoURL is set)
-  useEffect(() => {
-    setImageFailed(false);
-  }, [photoURL]);
+  // A falha fica atrelada à URL que falhou: se photoURL mudar, tenta de novo (sem effect).
+  const [failedUrl, setFailedUrl] = useState<string | undefined>(undefined);
+  const imageFailed = failedUrl !== undefined && failedUrl === photoURL;
 
   const initials = useMemo(() => {
     if (!name) return '??';
@@ -54,7 +51,7 @@ export default function Avatar({ name, photoURL, size = 'md', className = '' }: 
           src={photoURL}
           alt={name}
           className="w-full h-full object-cover"
-          onError={() => setImageFailed(true)}
+          onError={() => setFailedUrl(photoURL)}
         />
       ) : (
         <div className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${gradientClass} text-white`}>

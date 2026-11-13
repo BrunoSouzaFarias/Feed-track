@@ -81,7 +81,8 @@ function newProfile(uid: string, name: string, email: string, team: Team, positi
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Em modo mock sem sessão não há nada a restaurar: já nasce "carregado" (sem setState síncrono no effect).
+  const [loading, setLoading] = useState(() => !(isFirebaseMock && !sessionStorage.getItem(MOCK_SESSION_KEY)));
   const [emailVerified, setEmailVerified] = useState(true);
   // Evita a corrida "conta criada no Auth → listener roda antes do perfil existir".
   const registeringRef = useRef(false);
@@ -91,7 +92,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const activeUid = sessionStorage.getItem(MOCK_SESSION_KEY);
       if (!activeUid) {
         sessionHint.clear();
-        setLoading(false);
         return;
       }
       userService.getUser(activeUid).then((dbUser) => {

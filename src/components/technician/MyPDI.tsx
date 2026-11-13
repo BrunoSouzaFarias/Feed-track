@@ -14,7 +14,7 @@ interface MyPDIProps {
 
 export default function MyPDI({ userProfile, onRefresh }: MyPDIProps) {
   
-  const goals = userProfile.structuredPDI || [];
+  const goals = useMemo(() => userProfile.structuredPDI || [], [userProfile.structuredPDI]);
 
   const progressStats = useMemo(() => {
     if (goals.length === 0) {

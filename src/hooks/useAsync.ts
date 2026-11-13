@@ -7,48 +7,49 @@ interface AsyncState<T> {
   error: string | null;
 }
 
+interface Settled<T> {
+  key: string;
+  data: T | null;
+  error: string | null;
+}
+
 /**
  * Hook que executa uma função assíncrona com timeout automático.
  * Se a promise não resolver em `timeoutMs`, define error com mensagem amigável.
- * `fn` é lida de um ref, então não precisa de useCallback no chamador; a
- * função é reexecutada quando `deps` mudam ou quando `retry()` é chamado.
+ * `fn` é lida de um ref (não precisa de useCallback no chamador); reexecuta
+ * quando `deps` mudam ou quando `retry()` é chamado.
+ * `loading` é DERIVADO: true enquanto o resultado guardado não pertence à
+ * execução atual (chave deps+tentativa) — sem setState síncrono em effect.
  */
 export function useAsync<T>(
   fn: () => Promise<T>,
   deps: unknown[],
   timeoutMs = 10_000
 ): AsyncState<T> & { retry: () => void } {
-  const [state, setState] = useState<AsyncState<T>>({ data: null, loading: true, error: null });
   const [attempt, setAttempt] = useState(0);
+  const [settled, setSettled] = useState<Settled<T>>({ key: '', data: null, error: null });
   const fnRef = useRef(fn);
   useEffect(() => { fnRef.current = fn; });
 
-  const depsKey = JSON.stringify(deps);
+  const key = `${JSON.stringify(deps)}#${attempt}`;
 
   useEffect(() => {
     let cancelled = false;
-    setState({ data: null, loading: true, error: null });
-
-    const timer = setTimeout(() => {
-      if (!cancelled) {
-        setState({ data: null, loading: false, error: 'Tempo de carregamento esgotado. Verifique sua conexão.' });
-      }
-    }, timeoutMs);
-
-    fnRef.current().then(
-      (result) => {
-        clearTimeout(timer);
-        if (!cancelled) setState({ data: result, loading: false, error: null });
-      },
-      (err) => {
-        clearTimeout(timer);
-        if (!cancelled) setState({ data: null, loading: false, error: friendlyError(err, 'Erro ao carregar dados.') });
-      }
+    const finish = (data: T | null, error: string | null) => {
+      if (!cancelled) setSettled({ key, data, error });
+    };
+    const timer = setTimeout(
+      () => finish(null, 'Tempo de carregamento esgotado. Verifique sua conexão.'),
+      timeoutMs
     );
-
+    fnRef.current().then(
+      (result) => { clearTimeout(timer); finish(result, null); },
+      (err) => { clearTimeout(timer); finish(null, friendlyError(err, 'Erro ao carregar dados.')); }
+    );
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [depsKey, attempt, timeoutMs]);
+  }, [key, timeoutMs]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
-  return { ...state, retry };
+  const done = settled.key === key;
+  return { data: done ? settled.data : null, loading: !done, error: done ? settled.error : null, retry };
 }

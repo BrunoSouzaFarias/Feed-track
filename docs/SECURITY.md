@@ -31,12 +31,12 @@ Testes das regras: `npm run test:rules` (15 casos; contra as regras antigas, 8 f
 - [ ] Monitoramento: defina `VITE_ERROR_REPORT_URL` (ver `docs/DEPLOY.md`); sem ela, erros só vão para o console.
 
 ## Riscos residuais (conhecidos)
-1. **Badges e progresso do PDI** são gravados pelo cliente do técnico (as regras impedem remover itens, mas um técnico mal-intencionado pode marcar a própria meta como concluída ou se conceder badge). Para rigor total, mover essas escritas para Cloud Functions.
+1. **Badges e progresso do PDI**: no modo padrão são gravados pelo cliente do técnico (as regras impedem remover itens). **Fechado pelo modo estrito**: implante `/functions` + `firestore.strict.rules` (ver `docs/DEPLOY.md`); aí só o servidor concede badges e valida transições.
 2. **Assinatura digital**: sem âncora central de chaves públicas não há não-repúdio jurídico forte (ver `docs/subagent/audit_trail_compliance.md`).
-3. **Exclusão de usuário** apaga perfil, feedbacks e autoavaliações, mas **não a conta do Firebase Auth** (exige Admin SDK/Cloud Function). Sem perfil, o login é recusado. Logs de auditoria são mantidos por serem imutáveis (base legal: obrigação de conformidade).
+3. **Exclusão de usuário**: com `VITE_USE_CLOUD_FUNCTIONS=true`, `deleteUserAccount` remove também a conta do Auth. Sem as functions, só perfil/feedbacks/autoavaliações são apagados e o login é recusado por falta de perfil. Logs de auditoria são mantidos por serem imutáveis (base legal: obrigação de conformidade).
 4. **Multi-tenant**: todo supervisor vê todos os colaboradores. Se houver várias equipes/empresas, é preciso modelar `teamId`/`orgId` nas regras.
 5. **Primeiro supervisor** é promovido manualmente no console (não há como se auto-promover pelo app — é intencional).
-6. O histórico do Git ainda contém `drive_folder.html` e demais arquivos removidos do repositório; reescreva o histórico (`git filter-repo`) se isso for sensível.
+6. O histórico do Git ainda contém `drive_folder.html` e demais arquivos removidos do repositório. Reescrever histórico compartilhado exige decisão do dono do repositório; se necessário: `git filter-repo --path drive_folder.html --invert-paths` seguido de force-push coordenado com todos os colaboradores.
 
 ## Dependências
 `npm audit` aponta 4 achados “high” em `firebase → @firebase/firestore → @grpc/grpc-js@1.9.x`. São vulnerabilidades do **servidor** gRPC (Node) e esse caminho não é empacotado no navegador (o SDK web usa fetch/WebChannel); o “fix” sugerido (`firebase@9.14`) seria um downgrade. Acompanhe atualizações do SDK; o CI bloqueia apenas severidade `critical`.

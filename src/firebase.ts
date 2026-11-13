@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import { getAuth } from 'firebase/auth';
+import { getFunctions } from 'firebase/functions';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache, Timestamp } from 'firebase/firestore';
 import { isFirebaseMock } from './services/env';
 
@@ -34,4 +35,5 @@ export const db = initializeFirestore(app, {
     ? memoryLocalCache()
     : persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
 });
+export const functions = getFunctions(app, import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || 'us-central1');
 export { Timestamp };

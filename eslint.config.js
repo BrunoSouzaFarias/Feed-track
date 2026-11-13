@@ -18,13 +18,5 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
-    rules: {
-      // Diagnósticos do React Compiler (eslint-plugin-react-hooks v7). O padrão
-      // "buscar dados num useEffect e chamar setState" é válido e usado em todo
-      // o app; mantidos como AVISO para não bloquear, mas continuam visíveis.
-      'react-hooks/set-state-in-effect': 'warn',
-      'react-hooks/purity': 'warn',
-      'react-hooks/immutability': 'warn',
-    },
   },
 ])

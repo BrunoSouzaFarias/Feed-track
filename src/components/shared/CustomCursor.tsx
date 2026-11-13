@@ -92,7 +92,9 @@ interface CustomCursorProps {
 export function CustomCursor({ type, text }: CustomCursorProps) {
   const { setCursorType } = useCursor();
   const [isVisible, setIsVisible] = useState(false);
-  const [isTouchDevice, setIsTouchDevice] = useState(true);
+  const [isTouchDevice, setIsTouchDevice] = useState(
+    () => typeof window === 'undefined' || !window.matchMedia('(hover: hover)').matches
+  );
 
   // Modo contextual inteligente
   const [cursorMode, setCursorMode] = useState<CursorMode>('default');
@@ -139,7 +141,6 @@ export function CustomCursor({ type, text }: CustomCursorProps) {
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(hover: hover)');
-    setIsTouchDevice(!mediaQuery.matches);
 
     const handleMediaQueryChange = (e: MediaQueryListEvent) => {
       setIsTouchDevice(!e.matches);
@@ -247,7 +248,7 @@ export function CustomCursor({ type, text }: CustomCursorProps) {
       cancelAnimationFrame(animationId);
       observer.disconnect();
     };
-  }, [handleModeDetect]);
+  }, [handleModeDetect, setCursorType]);
 
   if (isTouchDevice || type === 'hidden') {
     return null;

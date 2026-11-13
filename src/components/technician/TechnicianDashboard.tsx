@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion, useTransform, AnimatePresence } from 'motion/react';
 import { useMouseParallax } from '../../hooks/useMouseParallax';
 import { BookOpen, Target, Award, PlusCircle, BarChart3, Milestone } from 'lucide-react';
+import { useDataEffect } from '../../hooks/useDataEffect';
 import { useAuth } from '../../hooks/useAuth';
 import { useFeedbacks } from '../../hooks/useFeedbacks';
 import { userService } from '../../services/userService';
@@ -63,25 +64,34 @@ export default function TechnicianDashboard() {
     }
   };
 
-  const loadProfile = async () => {
-    if (!user) return;
-    setIsLoading(true);
-    try {
-      const data = await userService.getUser(user.uid);
-      setProfile(data);
-      
-      const assessmentsList = await userService.getSelfAssessments(user.uid);
-      setHasAssessments(assessmentsList.length > 0);
+  const fetchProfileData = useCallback(async () => {
+    if (!user) return null;
+    const [data, assessmentsList] = await Promise.all([
+      userService.getUser(user.uid),
+      userService.getSelfAssessments(user.uid),
+    ]);
+    return { data, assessmentsList };
+  }, [user]);
 
-      if (assessmentsList.length > 0) {
-        // Sort by date descending
-        const sorted = [...assessmentsList].sort((a, b) =>
-          parseDate(b.createdAt).getTime() - parseDate(a.createdAt).getTime()
-        );
-        setLatestSelfAssessment(sorted[0].scores);
-      } else {
-        setLatestSelfAssessment(null);
-      }
+  const applyProfileData = (r: Awaited<ReturnType<typeof fetchProfileData>>) => {
+    if (!r) return;
+    setProfile(r.data);
+    setHasAssessments(r.assessmentsList.length > 0);
+    if (r.assessmentsList.length > 0) {
+      // Mais recente primeiro
+      const sorted = [...r.assessmentsList].sort((x, y) =>
+        parseDate(y.createdAt).getTime() - parseDate(x.createdAt).getTime()
+      );
+      setLatestSelfAssessment(sorted[0].scores);
+    } else {
+      setLatestSelfAssessment(null);
+    }
+  };
+
+  // Recarga manual (onRefresh dos painéis)
+  const loadProfile = async () => {
+    try {
+      applyProfileData(await fetchProfileData());
     } catch (err) {
       toast.error(friendlyError(err, 'Erro ao carregar dados do perfil.'));
     } finally {
@@ -89,9 +99,13 @@ export default function TechnicianDashboard() {
     }
   };
 
-  useEffect(() => {
-    loadProfile();
-  }, [user]);
+  // Carga inicial / quando o usuário muda
+  useDataEffect(
+    fetchProfileData,
+    (r) => { applyProfileData(r); setIsLoading(false); },
+    (err) => { toast.error(friendlyError(err, 'Erro ao carregar dados do perfil.')); setIsLoading(false); },
+    [user]
+  );
 
   // Compute supervisor scores based on feedbacks
   const supervisorScores = useMemo(() => {

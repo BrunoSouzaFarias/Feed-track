@@ -18,6 +18,13 @@ export const isMockBlocked: boolean =
   import.meta.env.PROD &&
   import.meta.env.VITE_ALLOW_MOCK !== 'true';
 
+/**
+ * Quando `true`, PDI/badges/exclusão de conta passam pelas Cloud Functions de
+ * `/functions` (servidor é a fonte da verdade). Exige as functions implantadas
+ * e, idealmente, `firestore.strict.rules`.
+ */
+export const useCloudFunctions: boolean = !isFirebaseMock && import.meta.env.VITE_USE_CLOUD_FUNCTIONS === 'true';
+
 /** Variáveis obrigatórias ausentes quando o Firebase real está configurado. */
 export function getMissingFirebaseEnv(): string[] {
   if (isFirebaseMock) return [];

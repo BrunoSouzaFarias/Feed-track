@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { ClipboardList, Star, AlertCircle, Loader2 } from 'lucide-react';
 import type { User, SelfAssessment as SelfAssessmentType } from '../../types';
+import { useDataEffect } from '../../hooks/useDataEffect';
 import { useModalA11y } from '../../hooks/useModalA11y';
 import { newId } from '../../services/ids';
 import { userService } from '../../services/userService';
@@ -38,22 +39,12 @@ export default function SelfAssessment({ userProfile, onSuccess, onClose }: Self
   const dialogRef = useModalA11y<HTMLDivElement>(onClose);
   const [checking, setChecking] = useState(true);
 
-  const checkSubmission = useCallback(async () => {
-    setChecking(true);
-    try {
-      const list = await userService.getSelfAssessments(userProfile.uid);
-      const submitted = list.some(a => a.period === currentPeriod);
-      setAlreadySubmitted(submitted);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setChecking(false);
-    }
-  }, [userProfile.uid, currentPeriod]);
-
-  useEffect(() => {
-    void checkSubmission();
-  }, [checkSubmission]);
+  useDataEffect(
+    () => userService.getSelfAssessments(userProfile.uid),
+    (list) => { setAlreadySubmitted(list.some(a => a.period === currentPeriod)); setChecking(false); },
+    (err) => { console.error(err); setChecking(false); },
+    [userProfile.uid, currentPeriod]
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

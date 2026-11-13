@@ -2,12 +2,13 @@ import {
   doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where,
   runTransaction, writeBatch,
 } from 'firebase/firestore';
-import { db, Timestamp } from '../firebase';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions, Timestamp } from '../firebase';
 import type { User, Badge, PDIGoal, SelfAssessment } from '../types';
 import { auditService } from './auditService';
 import { offlineSyncService } from './offlineSyncService';
 import { hasMockCredential, setMockCredential } from './credentialUtils';
-import { isFirebaseMock } from './env';
+import { isFirebaseMock, useCloudFunctions } from './env';
 import { AppError } from './errors';
 
 // Senha das contas de DEMONSTRAÇÃO (somente modo mock — bloqueado em produção
@@ -225,6 +226,19 @@ export const userService = {
   },
 
   async updatePDIGoalStatus(uid: string, goalId: string, status: PDIGoal['status']): Promise<void> {
+    if (useCloudFunctions) {
+      // O servidor valida dono, transição e carimba completedAt.
+      const res = await httpsCallable<
+        { uid: string; goalId: string; status: string },
+        { goalTitle: string; userName: string; previous: PDIGoal['status'] }
+      >(functions, 'setPdiGoalStatus')({ uid, goalId, status });
+      if (status === 'completed' && res.data.previous !== 'completed') {
+        await auditService.registerLog('pdi_goal_completion', goalId, uid, res.data.userName, {
+          goalId, goalTitle: res.data.goalTitle, technicianId: uid, completedAt: new Date().toISOString(),
+        });
+      }
+      return;
+    }
     let goalToLog: PDIGoal | undefined;
     let userName = '';
     await mutateUser(uid, (u) => {
@@ -252,6 +266,12 @@ export const userService = {
   async addBadge(uid: string, badge: Badge): Promise<void> {
     await mutateUser(uid, (u) =>
       u.badges?.some((b) => b.id === badge.id) ? null : { badges: [...(u.badges ?? []), badge] });
+  },
+
+  /** (Cloud Functions) O servidor verifica as condições e concede os badges devidos. */
+  async claimBadges(): Promise<{ id: string; title: string }[]> {
+    const res = await httpsCallable<void, { granted: { id: string; title: string }[] }>(functions, 'claimBadges')();
+    return res.data.granted;
   },
 
   // --- Autoavaliações ---------------------------------------------------
@@ -283,6 +303,11 @@ export const userService = {
   async deleteUser(uid: string): Promise<void> {
     if (isFirebaseMock) {
       saveMockUsers(getMockUsers().filter((u) => u.uid !== uid));
+      return;
+    }
+    if (useCloudFunctions) {
+      // Remove também a conta do Firebase Auth (só possível com Admin SDK).
+      await httpsCallable<{ uid: string }, { ok: boolean }>(functions, 'deleteUserAccount')({ uid });
       return;
     }
     await offlineSyncService.run(async () => {

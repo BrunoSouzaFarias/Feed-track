@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { motion, useTransform, AnimatePresence } from 'motion/react';
 import { useMouseParallax } from '../../hooks/useMouseParallax';
 import Avatar from '../shared/Avatar';
+import { useDataEffect } from '../../hooks/useDataEffect';
 import { useAuth } from '../../hooks/useAuth';
 import { useFeedbacks } from '../../hooks/useFeedbacks';
 import { useTheme } from '../../hooks/useTheme';
@@ -52,23 +53,36 @@ export default function SupervisorDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   
-  const loadData = async () => {
+  const fetchTeamData = useCallback(async () => {
+    const technicians = await userService.getAllTechnicians();
+    const logs = await auditService.getLogs();
+    return { technicians, logs };
+  }, []);
+
+  const applyTeamData = (r: Awaited<ReturnType<typeof fetchTeamData>>) => {
+    setTechnicians(r.technicians);
+    setAuditLogs(r.logs);
+  };
+
+  // Recarga manual (botões/onRefresh): mostra o carregamento.
+  const reloadData = async () => {
     setIsLoading(true);
     try {
-      const data = await userService.getAllTechnicians();
-      setTechnicians(data);
-      const logs = await auditService.getLogs();
-      setAuditLogs(logs);
+      applyTeamData(await fetchTeamData());
     } catch (err) {
-      toast.error(friendlyError(err, "Erro ao carregar colaboradores."));
+      toast.error(friendlyError(err, 'Erro ao carregar colaboradores.'));
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  // Carga inicial (isLoading já nasce true)
+  useDataEffect(
+    fetchTeamData,
+    (r) => { applyTeamData(r); setIsLoading(false); },
+    (err) => { toast.error(friendlyError(err, 'Erro ao carregar colaboradores.')); setIsLoading(false); },
+    []
+  );
 
   const handleExportAll = () => {
     if (!user) return;
@@ -217,7 +231,7 @@ export default function SupervisorDashboard() {
             <TeamManagement
               technicians={technicians}
               feedbacks={feedbacks}
-              onRefresh={loadData}
+              onRefresh={reloadData}
               onSelectTechnicianFeedbacks={() => {
                 setActiveTab('feedbacks');
               }}
@@ -232,7 +246,7 @@ export default function SupervisorDashboard() {
           )}
 
           {activeTab === 'pdis' && (
-            <PDIManager technicians={technicians} onUpdate={loadData} />
+            <PDIManager technicians={technicians} onUpdate={reloadData} />
           )}
 
           {activeTab === 'climate' && (
@@ -252,7 +266,7 @@ export default function SupervisorDashboard() {
           )}
 
           {activeTab === 'compliance' && (
-            <ComplianceAudit logs={auditLogs} onRefresh={loadData} />
+            <ComplianceAudit logs={auditLogs} onRefresh={reloadData} />
           )}
 
           </PageTransition>
@@ -270,7 +284,7 @@ export default function SupervisorDashboard() {
             onClose={() => { setIsFeedbackModalOpen(false); setFeedbackModalTechId(undefined); }}
             onSuccess={() => {
               refreshFeedbacks();
-              loadData();
+              void reloadData();
             }}
           />
         )}

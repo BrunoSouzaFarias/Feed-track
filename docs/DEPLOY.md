@@ -18,6 +18,25 @@ firebase deploy --only firestore:rules,firestore:indexes,hosting
 ```
 O `firebase.json` já publica CSP, HSTS, `X-Frame-Options`, cache imutável para `/assets/**` e `no-cache` para `index.html` e `sw.js`.
 
+## Cloud Functions (opcional, recomendado)
+`/functions` contém o backend que fecha as brechas que o navegador sozinho não consegue fechar:
+
+| Função | O que faz |
+|---|---|
+| `setPdiGoalStatus` | Valida dono e transição (técnico só avança) e carimba `completedAt` no servidor. |
+| `claimBadges` | O **servidor** avalia as condições e concede os badges (o técnico não escolhe). |
+| `deleteUserAccount` | Supervisor exclui colaborador **inclusive a conta do Firebase Auth**, perfil, feedbacks e autoavaliações (logs de auditoria são mantidos). |
+
+Requer o plano Blaze. Passo a passo:
+```bash
+npm --prefix functions install
+firebase deploy --only functions
+# no .env de produção:  VITE_USE_CLOUD_FUNCTIONS=true  (e rebuild do front)
+npm run rules:strict && cp firestore.strict.rules firestore.rules   # opcional: ver abaixo
+firebase deploy --only firestore:rules,hosting
+```
+**Regras estritas** (`firestore.strict.rules`, gerado por `npm run rules:strict`): o técnico deixa de poder gravar `structuredPDI` e `badges` direto no Firestore — só o servidor (Admin SDK) ou um supervisor. Faça o deploy das regras estritas **somente depois** de implantar as functions e ativar `VITE_USE_CLOUD_FUNCTIONS=true`, senão técnicos não conseguirão atualizar metas. Ambos os conjuntos de regras têm testes (`npm run test:rules`).
+
 ## Primeiro supervisor
 1. Crie a conta em `/register` (nasce como técnico).
 2. No console do Firestore, altere `users/{uid}.role` para `supervisor`.

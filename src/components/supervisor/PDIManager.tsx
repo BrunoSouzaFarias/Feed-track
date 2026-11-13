@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Target, Calendar, PlusCircle, Loader2, ArrowRight } from 'lucide-react';
 import type { User, PDIGoal } from '../../types';
 import { Timestamp } from 'firebase/firestore';
+import { useDataEffect } from '../../hooks/useDataEffect';
 import { formatDate } from '../../services/dateUtils';
 import { userService } from '../../services/userService';
 import { newId } from '../../services/ids';
@@ -15,7 +16,9 @@ interface PDIManagerProps {
 
 export default function PDIManager({ technicians, onUpdate }: PDIManagerProps) {
   const [selectedTechId, setSelectedTechId] = useState('');
-  const [techData, setTechData] = useState<User | null>(null);
+  const [loadedTechData, setTechData] = useState<User | null>(null);
+  // Estado derivado: sem colaborador selecionado, não há dados (sem setState em effect).
+  const techData = selectedTechId ? loadedTechData : null;
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [deadline, setDeadline] = useState('');
@@ -29,14 +32,12 @@ export default function PDIManager({ technicians, onUpdate }: PDIManagerProps) {
     }
   }, [selectedTechId]);
 
-  useEffect(() => {
-    if (selectedTechId) {
-      void loadTechData();
-    } else {
-      setTechData(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTechId, technicians, loadTechData]);
+  useDataEffect(
+    () => (selectedTechId ? userService.getUser(selectedTechId) : Promise.resolve(null)),
+    setTechData,
+    (err) => toast.error(friendlyError(err, 'Erro ao carregar o PDI do colaborador.')),
+    [selectedTechId, technicians]
+  );
 
   const handleAddGoal = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { User, Feedback } from '../../types';
 import { generateInsights, computeTeamHealth } from '../../services/executiveInsights';
@@ -101,11 +101,16 @@ export default function ExecutiveInsights({ technicians, feedbacks }: ExecutiveI
   const insights = useMemo(() => generateInsights(technicians, filteredFeedbacks), [technicians, filteredFeedbacks]);
   const health = useMemo(() => computeTeamHealth(technicians, filteredFeedbacks), [technicians, filteredFeedbacks]);
 
-  useEffect(() => {
+  const generatingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const startGenerating = () => {
     setIsGenerating(true);
-    const t = setTimeout(() => setIsGenerating(false), 800);
-    return () => clearTimeout(t);
-  }, [period]);
+    clearTimeout(generatingTimer.current);
+    generatingTimer.current = setTimeout(() => setIsGenerating(false), 800);
+  };
+  useEffect(() => {
+    generatingTimer.current = setTimeout(() => setIsGenerating(false), 800); // animação inicial
+    return () => clearTimeout(generatingTimer.current);
+  }, []);
 
   const filtered = useMemo(() => {
     return insights
@@ -162,7 +167,7 @@ export default function ExecutiveInsights({ technicians, feedbacks }: ExecutiveI
             {(['monthly', 'quarterly', 'yearly'] as const).map((p) => (
               <button
                 key={p}
-                onClick={() => setPeriod(p)}
+                onClick={() => { setPeriod(p); startGenerating(); }}
                 className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
                   period === p
                     ? 'bg-white dark:bg-zinc-700 text-[#006c49] dark:text-[#4bdfa1] shadow-sm'

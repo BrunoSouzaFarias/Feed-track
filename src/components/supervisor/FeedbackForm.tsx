@@ -72,8 +72,6 @@ export default function FeedbackForm({ technicians, initialTechId, onClose, onSu
     // eslint-disable-next-line no-control-regex
     str.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
 
-  const dialogRef = useModalA11y<HTMLDivElement>(() => handleDiscard());
-
   const handleDiscard = () => {
     if (description.trim().length > 0) {
       const confirmed = window.confirm('Descartar este feedback? O texto digitado será perdido permanentemente.');
@@ -81,6 +79,8 @@ export default function FeedbackForm({ technicians, initialTechId, onClose, onSu
     }
     onClose();
   };
+
+  const dialogRef = useModalA11y<HTMLDivElement>(handleDiscard);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

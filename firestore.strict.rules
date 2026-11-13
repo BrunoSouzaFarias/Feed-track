@@ -1,0 +1,166 @@
+// ARQUIVO GERADO a partir de firestore.rules (npm run rules:strict). Não edite à mão.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSupervisor() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'supervisor' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Conta desativada pelo supervisor perde acesso mesmo com token válido.
+    function isActiveUser() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true;
+    }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function isTeam(v) {
+      return v in ['back-office', 'teleservice'];
+    }
+
+    // ------------------------------------------------------------------
+    // users
+    // ------------------------------------------------------------------
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isSupervisor();
+
+      // Auto-cadastro: SEMPRE técnico, ativo, sem badges/PDI e com o e-mail
+      // do token (impede forjar e-mail/uid de terceiros).
+      // Somente um supervisor pode criar outro perfil arbitrário.
+      allow create: if isSupervisor() ||
+        (isOwner(userId) &&
+         request.resource.data.keys().hasOnly(['uid','name','email','role','team','position','photoURL','phone','active','createdAt','badges','structuredPDI']) &&
+         request.resource.data.uid == userId &&
+         request.resource.data.role == 'technician' &&
+         request.resource.data.active == true &&
+         request.resource.data.email == request.auth.token.email &&
+         request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 120 &&
+         request.resource.data.position is string && request.resource.data.position.size() <= 120 &&
+         isTeam(request.resource.data.team) &&
+         request.resource.data.badges.size() == 0 &&
+         request.resource.data.structuredPDI.size() == 0);
+
+      // MODO ESTRITO (requer as Cloud Functions de /functions implantadas):
+      // PDI e badges só mudam pelo servidor (Admin SDK) ou por supervisor.
+      allow update: if isSupervisor() ||
+        (isOwner(userId) && isActiveUser() &&
+         changedKeys().hasOnly(['name','phone','photoURL']));
+
+      allow delete: if isSupervisor();
+    }
+
+    // ------------------------------------------------------------------
+    // feedbacks
+    // ------------------------------------------------------------------
+    match /feedbacks/{feedbackId} {
+      allow read: if isSupervisor() ||
+        (isActiveUser() && resource.data.technicianId == request.auth.uid);
+
+      // Apenas supervisores criam feedback, em seu próprio nome, e sempre
+      // pendente e sem assinatura pré-fabricada.
+      allow create: if isSupervisor() &&
+        request.resource.data.keys().hasOnly(['id','technicianId','technicianName','supervisorId','type','axis','description','status','createdAt']) &&
+        request.resource.data.id == feedbackId &&
+        request.resource.data.supervisorId == request.auth.uid &&
+        request.resource.data.type in ['positive','development'] &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.axis is string && request.resource.data.axis.size() <= 100 &&
+        request.resource.data.description is string &&
+        request.resource.data.description.size() >= 1 &&
+        request.resource.data.description.size() <= 3500 &&
+        request.resource.data.technicianName is string && request.resource.data.technicianName.size() <= 120 &&
+        request.resource.data.createdAt is timestamp;
+
+      // Técnico pode APENAS marcar como lido / assinar o próprio feedback.
+      // Conteúdo (descrição, tipo, eixo, destinatário, autor) é imutável.
+      allow update: if isSupervisor() ||
+        (isActiveUser() &&
+         resource.data.technicianId == request.auth.uid &&
+         changedKeys().hasOnly(['status','readAt','signedAt']) &&
+         request.resource.data.status == 'read' &&
+         (!('signedAt' in resource.data) || request.resource.data.signedAt == resource.data.signedAt));
+
+      allow delete: if isSupervisor();
+    }
+
+    // ------------------------------------------------------------------
+    // selfAssessments
+    // ------------------------------------------------------------------
+    match /selfAssessments/{assessmentId} {
+      allow read: if isSupervisor() ||
+        (isActiveUser() && resource.data.technicianId == request.auth.uid);
+
+      allow create: if isActiveUser() &&
+        request.resource.data.technicianId == request.auth.uid &&
+        request.resource.data.keys().hasOnly(['id','technicianId','period','scores','comments','createdAt']) &&
+        request.resource.data.id == assessmentId &&
+        request.resource.data.period.matches('^[0-9]{4}-Q[1-4]$') &&
+        request.resource.data.comments is string && request.resource.data.comments.size() <= 2000 &&
+        request.resource.data.scores.keys().hasOnly(['communication','teamwork','technical','proactivity','attendance']) &&
+        request.resource.data.scores.communication is number && request.resource.data.scores.communication >= 1 && request.resource.data.scores.communication <= 5 &&
+        request.resource.data.scores.teamwork is number && request.resource.data.scores.teamwork >= 1 && request.resource.data.scores.teamwork <= 5 &&
+        request.resource.data.scores.technical is number && request.resource.data.scores.technical >= 1 && request.resource.data.scores.technical <= 5 &&
+        request.resource.data.scores.proactivity is number && request.resource.data.scores.proactivity >= 1 && request.resource.data.scores.proactivity <= 5 &&
+        request.resource.data.scores.attendance is number && request.resource.data.scores.attendance >= 1 && request.resource.data.scores.attendance <= 5;
+
+      // Autoavaliação enviada não é editável (histórico confiável).
+      allow update: if isSupervisor();
+      allow delete: if isSupervisor();
+    }
+
+    // ------------------------------------------------------------------
+    // auditLogs — imutáveis; criação só com evidência real no banco
+    // ------------------------------------------------------------------
+    match /auditLogs/{logId} {
+      allow read: if isSupervisor() ||
+        (isActiveUser() && resource.data.technicianId == request.auth.uid);
+
+      allow create: if isActiveUser() &&
+        request.resource.data.keys().hasOnly(['id','timestamp','eventType','entityId','technicianId','technicianName','details','hash','signature','publicKey','createdAt']) &&
+        request.resource.data.id == logId &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.hash.matches('^[0-9a-f]{64}$') &&
+        request.resource.data.signature is string && request.resource.data.signature.size() > 0 && request.resource.data.signature.size() <= 512 &&
+        request.resource.data.publicKey is string && request.resource.data.publicKey.size() <= 1024 &&
+        (
+          // Assinatura de feedback: o feedback precisa existir, ser do
+          // técnico informado e já estar assinado (signedAt gravado antes).
+          (request.resource.data.eventType == 'feedback_signature' &&
+           isOwner(request.resource.data.technicianId) &&
+           exists(/databases/$(database)/documents/feedbacks/$(request.resource.data.entityId)) &&
+           get(/databases/$(database)/documents/feedbacks/$(request.resource.data.entityId)).data.technicianId == request.resource.data.technicianId &&
+           'signedAt' in get(/databases/$(database)/documents/feedbacks/$(request.resource.data.entityId)).data)
+          ||
+          // Conclusão de meta do PDI: o próprio técnico ou um supervisor.
+          (request.resource.data.eventType == 'pdi_goal_completion' &&
+           (isOwner(request.resource.data.technicianId) || isSupervisor()))
+        );
+
+      // Trilha de auditoria imutável.
+      allow update, delete: if false;
+    }
+
+    // Negar tudo que não foi explicitamente liberado.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
