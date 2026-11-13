@@ -70,7 +70,7 @@ export interface PDIGoal {
 export interface AuditLog {
   id: string;
   timestamp: string;
-  eventType: 'feedback_signature' | 'pdi_goal_completion';
+  eventType: 'feedback_signature' | 'pdi_goal_completion' | 'home_office_ack';
   entityId: string;
   technicianId: string;
   technicianName: string;
@@ -99,3 +99,68 @@ export const FEEDBACK_AXES = [
   'Conformidade com processos',
   'Metas e indicadores'
 ];
+
+// ---------------------------------------------------------------------------
+// Avaliação de Home Office
+// ---------------------------------------------------------------------------
+export type Team = 'back-office' | 'teleservice';
+
+export interface HomeOfficeCategory {
+  id: string;
+  label: string;
+  points: number;
+  /** false nas categorias de atestado: nunca recebem imagem (dado de saúde). */
+  requiresEvidence: boolean;
+  active: boolean;
+}
+
+export interface HomeOfficeConfig {
+  categories: HomeOfficeCategory[];
+  threshold: number;
+}
+
+export interface HomeOfficePoint {
+  id: string;
+  technicianId: string;
+  technicianName: string;
+  team: Team;
+  weekId: string; // segunda-feira da semana, YYYY-MM-DD
+  categoryId: string;
+  categoryLabel: string;
+  points: number; // copiado da categoria no momento do lançamento
+  note: string;
+  occurredOn: string; // YYYY-MM-DD
+  hasEvidence: boolean;
+  status: 'active' | 'cancelled';
+  cancelReason?: string;
+  cancelledBy?: string;
+  cancelledAt?: Timestamp;
+  createdBy: string;
+  createdAt: Timestamp;
+}
+
+export interface HomeOfficeEvidence {
+  pointId: string;
+  technicianId: string;
+  team: Team;
+  weekId: string;
+  dataUrl: string;
+  createdBy: string;
+  createdAt: Timestamp;
+}
+
+/** Existir = semana fechada para aquela pessoa. */
+export interface HomeOfficeWeek {
+  id: string; // `${weekId}_${technicianId}`
+  technicianId: string;
+  technicianName: string;
+  team: Team;
+  weekId: string;
+  score: number;
+  threshold: number;
+  eligible: boolean;
+  closedBy: string;
+  closedAt: Timestamp;
+  ackAt?: Timestamp;
+  ackComment?: string;
+}
