@@ -1,9 +1,9 @@
 import { motion } from 'motion/react';
-import { Users, FileBarChart, FileText, Target, FileSpreadsheet, Shield, Sparkles, LogOut } from 'lucide-react';
+import { Home, Users, FileBarChart, FileText, Target, FileSpreadsheet, Shield, Sparkles, LogOut } from 'lucide-react';
 import Magnetic from '../shared/Magnetic';
 import BrandLogo from '../shared/BrandLogo';
 
-export type SupervisorTab = 'dashboard' | 'team' | 'feedbacks' | 'pdis' | 'climate' | 'export' | 'compliance' | '9box' | 'insights';
+export type SupervisorTab = 'dashboard' | 'team' | 'feedbacks' | 'pdis' | 'climate' | 'export' | 'compliance' | '9box' | 'insights' | 'homeoffice';
 
 interface SupervisorSidebarProps {
   activeTab: SupervisorTab;
@@ -46,6 +46,7 @@ export default function SupervisorSidebar({ activeTab, onTabChange, onNewFeedbac
                   <rect x="16" y="16" width="5" height="5" />
                 </svg>
               )},
+              { id: 'homeoffice', label: 'Home Office', icon: Home },
               { id: 'insights', label: 'Insights', icon: Sparkles },
               { id: 'climate', label: 'Relatórios', icon: FileBarChart },
               { id: 'export', label: 'Exportar Lote', icon: FileSpreadsheet },

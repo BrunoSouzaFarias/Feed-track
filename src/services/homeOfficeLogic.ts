@@ -63,6 +63,12 @@ export function computeScore(points: Pick<HomeOfficePoint, 'points' | 'status'>[
   return Math.max(0, START_SCORE - lost);
 }
 
+/** Cor do saldo em relação à nota de corte: ok (≥ corte), warn (até 15 abaixo) ou bad. */
+export function scoreTone(score: number, threshold: number): 'ok' | 'warn' | 'bad' {
+  if (score >= threshold) return 'ok';
+  return score >= threshold - 15 ? 'warn' : 'bad';
+}
+
 export function isEligible(score: number, threshold: number): boolean {
   return score >= threshold;
 }

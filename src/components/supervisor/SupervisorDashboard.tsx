@@ -20,9 +20,10 @@ import ComplianceAudit from './ComplianceAudit';
 import BatchExport from './BatchExport';
 import Talent9Box from './Talent9Box';
 import ExecutiveInsights from './ExecutiveInsights';
-import SupervisorSidebar from './SupervisorSidebar';
+import SupervisorSidebar, { type SupervisorTab } from './SupervisorSidebar';
 import SettingsModal from './SettingsModal';
 import DashboardOverview from './DashboardOverview';
+import HomeOffice from './HomeOffice';
 import toast from 'react-hot-toast';
 import NotificationCenter from '../shared/NotificationCenter';
 import PageTransition from '../shared/PageTransition';
@@ -46,7 +47,7 @@ export default function SupervisorDashboard() {
   // Dashboard states
   const [technicians, setTechnicians] = useState<User[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'team' | 'feedbacks' | 'pdis' | 'climate' | 'export' | 'compliance' | '9box' | 'insights'>('dashboard');
+  const [activeTab, setActiveTab] = useState<SupervisorTab>('dashboard');
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const [feedbackModalTechId, setFeedbackModalTechId] = useState<string | undefined>(undefined);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -256,6 +257,8 @@ export default function SupervisorDashboard() {
           {activeTab === '9box' && (
             <Talent9Box technicians={technicians} />
           )}
+
+          {activeTab === 'homeoffice' && <HomeOffice technicians={technicians} />}
 
           {activeTab === 'insights' && (
             <ExecutiveInsights technicians={technicians} feedbacks={feedbacks} />

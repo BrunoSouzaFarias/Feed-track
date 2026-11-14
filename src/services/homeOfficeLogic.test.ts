@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_HOME_OFFICE_CONFIG, weekIdOf, weekIdOfDateString, shiftWeek, weekRangeLabel,
-  computeScore, isEligible, weekDocId, validatePointInput,
+  computeScore, isEligible, scoreTone, weekDocId, validatePointInput,
 } from './homeOfficeLogic';
 
 const cat = DEFAULT_HOME_OFFICE_CONFIG.categories;
@@ -59,5 +59,13 @@ describe('validatePointInput', () => {
     expect(validatePointInput({ ...ok, hasEvidence: false })).toMatch(/print/i);
     expect(validatePointInput({ ...ok, category: medical, hasEvidence: false })).toBeNull();
     expect(validatePointInput({ ...ok, category: medical, hasEvidence: true })).toMatch(/atestado/i);
+  });
+});
+
+describe('scoreTone', () => {
+  it('verde no corte, âmbar até 15 pontos abaixo, vermelho além', () => {
+    expect(scoreTone(70, 70)).toBe('ok');
+    expect(scoreTone(55, 70)).toBe('warn');
+    expect(scoreTone(54, 70)).toBe('bad');
   });
 });
