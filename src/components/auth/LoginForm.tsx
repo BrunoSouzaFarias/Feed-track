@@ -3,6 +3,8 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Mail, Lock, Loader2, ArrowRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAuth } from '../../hooks/useAuth';
+import { sessionHint } from '../../services/sessionHint';
+import { friendlyError } from '../../services/errors';
 import { useSmoothScroll } from '../../hooks/useSmoothScroll';
 import toast from 'react-hot-toast';
 import Magnetic from '../shared/Magnetic';
@@ -22,7 +24,7 @@ export default function LoginForm() {
     }
   }, [user, navigate]);
 
-  if (authLoading && (sessionStorage.getItem('feed_track_logged_in') === 'true' || localStorage.getItem('feed_track_logged_in') === 'true')) {
+  if (authLoading && (sessionHint.get())) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950 transition-colors duration-200">
         <div className="flex flex-col items-center gap-3">
@@ -46,8 +48,8 @@ export default function LoginForm() {
     try {
       await sendPasswordReset(email);
       toast.success('E-mail de recuperação de senha enviado! Verifique sua caixa de entrada.');
-    } catch (error: any) {
-      toast.error(error.message || 'Erro ao enviar e-mail de recuperação.');
+    } catch (error) {
+      toast.error(friendlyError(error, 'Erro ao enviar e-mail de recuperação.'));
     } finally {
       setLoading(false);
     }
@@ -69,8 +71,8 @@ export default function LoginForm() {
       } else {
         navigate('/technician');
       }
-    } catch (error: any) {
-      toast.error(error.message || 'Falha ao autenticar.');
+    } catch (error) {
+      toast.error(friendlyError(error, 'Falha ao autenticar.'));
     } finally {
       setLoading(false);
     }

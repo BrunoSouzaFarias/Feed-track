@@ -1,4 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { auditService } from '../../services/auditService';
+import { isFirebaseMock } from '../../services/env';
+import { verifySignature } from '../../services/signatureService';
 import { Shield, Search, CheckCircle, FileText, Key, ShieldCheck, Download } from 'lucide-react';
 import type { AuditLog } from '../../types';
 import toast from 'react-hot-toast';
@@ -11,6 +14,23 @@ interface ComplianceAuditProps {
 export default function ComplianceAudit({ logs, onRefresh }: ComplianceAuditProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  // Resultado da verificação criptográfica (ECDSA) de cada assinatura.
+  const [validity, setValidity] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    // Válida = assinatura confere com a chave do log E (quando há registro central) essa
+    // chave é a ANCORADA para o signatário. Falha ao ler a âncora não marca nada como válido.
+    auditService.getAnchoredKeys()
+      .then((anchored) => Promise.all(logs.map(async (l) => {
+        const sigOk = await verifySignature(l.hash, l.signature, l.publicKey);
+        const anchorOk = isFirebaseMock || anchored[l.signerId ?? l.technicianId] === l.publicKey;
+        return [l.id, sigOk && anchorOk] as const;
+      })))
+      .then((entries) => { if (!cancelled) setValidity(Object.fromEntries(entries)); })
+      .catch(() => { if (!cancelled) setValidity({}); });
+    return () => { cancelled = true; };
+  }, [logs]);
 
   const filteredLogs = logs.filter(log => 
     log.technicianName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -19,8 +39,10 @@ export default function ComplianceAudit({ logs, onRefresh }: ComplianceAuditProp
   );
 
   const handleCopy = (text: string, type: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success(`${type} copiado para a área de transferência!`);
+    navigator.clipboard.writeText(text).then(
+      () => toast.success(`${type} copiado para a área de transferência!`),
+      () => toast.error('Não foi possível copiar. Selecione o texto manualmente.')
+    );
   };
 
   const handleExportJSON = () => {
@@ -68,7 +90,7 @@ export default function ComplianceAudit({ logs, onRefresh }: ComplianceAuditProp
         <div className="space-y-1">
           <p className="font-bold text-emerald-800 dark:text-emerald-400">Garantia de Integridade dos Dados</p>
           <p className="text-zinc-650 dark:text-zinc-300 leading-relaxed">
-            Cada assinatura de feedback ou conclusão de meta do PDI gera um hash criptográfico <code className="bg-emerald-100/50 dark:bg-emerald-900/20 px-1 py-0.5 rounded text-emerald-750 font-mono">SHA-256</code> exclusivo contendo os dados do evento. O hash é assinado digitalmente usando chaves simuladas (RSA) do colaborador para assegurar a autenticidade e o não-retrocesso das ações registradas.
+            Cada assinatura de feedback ou conclusão de meta do PDI gera um hash criptográfico <code className="bg-emerald-100/50 dark:bg-emerald-900/20 px-1 py-0.5 rounded text-emerald-750 font-mono">SHA-256</code> exclusivo contendo os dados do evento. O hash é assinado com ECDSA P-256 por uma chave não-exportável guardada no dispositivo do colaborador, e a assinatura pode ser verificada com a chave pública registrada no log (selo ao lado de cada evento).
           </p>
         </div>
       </div>
@@ -117,6 +139,14 @@ export default function ComplianceAudit({ logs, onRefresh }: ComplianceAuditProp
                             </td>
                             <td className="p-4 font-bold text-zinc-800 dark:text-zinc-200 w-[20%] truncate">
                               {log.technicianName}
+                              {validity[log.id] !== undefined && (
+                                <span
+                                  title={validity[log.id] ? 'Assinatura verificada e chave ancorada no servidor' : 'Assinatura inválida OU chave diferente da registrada'}
+                                  className={`ml-2 text-[9px] font-bold uppercase ${validity[log.id] ? 'text-emerald-600' : 'text-red-600'}`}
+                                >
+                                  {validity[log.id] ? '✓ válida' : '✗ inválida'}
+                                </span>
+                              )}
                             </td>
                             <td className="p-4 w-[15%]">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded font-bold text-[9px] uppercase tracking-wide ${

@@ -7,7 +7,16 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-feed-track \"vitest run --config vitest.rules.config.ts\"",
+    "ci": "npm run typecheck && npm run lint && npm test && npm run functions:typecheck && npm run build",
+    "rules:strict": "node scripts/gen-strict-rules.mjs",
+    "functions:typecheck": "npm --prefix functions run typecheck",
+    "test:functions": "npm --prefix functions run build && firebase emulators:exec --only auth,firestore,functions --project demo-feed-track \"vitest run --config vitest.functions.config.ts\"",
+    "setup:console": "node scripts/firebase-console-setup.mjs",
+    "backfill:team": "node scripts/backfill-team.mjs"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
@@ -24,6 +33,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@tailwindcss/postcss": "^4.3.0",
     "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^24.12.3",
@@ -34,11 +44,18 @@
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
+    "fake-indexeddb": "^6.2.8",
+    "firebase-admin": "^13.10.0",
+    "firebase-tools": "^15.36.0",
     "globals": "^17.6.0",
     "postcss": "^8.5.15",
     "tailwindcss": "^4.3.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "vitest": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=20.19"
   }
 }

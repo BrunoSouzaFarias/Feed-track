@@ -1,20 +1,21 @@
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where } from 'firebase/firestore';
-import { db, Timestamp } from '../firebase';
+import {
+  doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where,
+  runTransaction, writeBatch,
+} from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions, Timestamp } from '../firebase';
 import type { User, Badge, PDIGoal, SelfAssessment } from '../types';
 import { auditService } from './auditService';
 import { offlineSyncService } from './offlineSyncService';
 import { hasMockCredential, setMockCredential } from './credentialUtils';
+import { isFirebaseMock, useCloudFunctions } from './env';
+import { scope } from './scope';
+import { AppError } from './errors';
 
-// Demo password for the seeded mock accounts below — shown here (not on the
-// User object) so it never appears in exports/PDFs; documented for testers
-// in README.md.
+// Senha das contas de DEMONSTRAÇÃO (somente modo mock — bloqueado em produção
+// por `isMockBlocked`). Documentada no README para testadores.
 const DEMO_SEED_PASSWORD = 'liberty123';
 
-const isFirebaseMock = !import.meta.env.VITE_FIREBASE_API_KEY || 
-  import.meta.env.VITE_FIREBASE_API_KEY.includes('mock') || 
-  import.meta.env.VITE_FIREBASE_API_KEY.includes('dummy');
-
-// --- LOCAL STORAGE MOCK DB INITIALIZATION ---
 const MOCK_USERS_KEY = 'feed_track_mock_users';
 const MOCK_ASSESSMENTS_KEY = 'feed_track_mock_assessments';
 
@@ -83,6 +84,7 @@ const defaultSelfAssessments = [
   {
     id: 'sa1',
     technicianId: 'tech1',
+    team: 'back-office',
     period: '2026-Q2',
     scores: {
       communication: 4,
@@ -97,6 +99,7 @@ const defaultSelfAssessments = [
   {
     id: 'sa2',
     technicianId: 'tech2',
+    team: 'teleservice',
     period: '2026-Q2',
     scores: {
       communication: 3,
@@ -111,6 +114,7 @@ const defaultSelfAssessments = [
   {
     id: 'sa3',
     technicianId: 'tech3',
+    team: 'teleservice',
     period: '2026-Q2',
     scores: {
       communication: 5,
@@ -124,279 +128,210 @@ const defaultSelfAssessments = [
   }
 ];
 
-// Initialize localStorage mock data if empty
-if (!localStorage.getItem(MOCK_USERS_KEY)) {
-  localStorage.setItem(MOCK_USERS_KEY, JSON.stringify([defaultSupervisor, ...defaultTechnicians]));
-}
-if (!localStorage.getItem(MOCK_ASSESSMENTS_KEY)) {
-  localStorage.setItem(MOCK_ASSESSMENTS_KEY, JSON.stringify(defaultSelfAssessments));
-}
-
-// Seed a known demo password for the seeded accounts above so mock-mode login
-// (which now verifies passwords) still works for testers. Fire-and-forget:
-// this only fills in credentials that don't exist yet.
-void (async () => {
-  for (const seedUser of [defaultSupervisor, ...defaultTechnicians]) {
-    if (!hasMockCredential(seedUser.uid)) {
-      await setMockCredential(seedUser.uid, DEMO_SEED_PASSWORD);
-    }
+// Semeia o "banco" local APENAS em modo mock. Em modo Firebase nada é gravado
+// no localStorage (evita vazar dados pessoais entre usuários do mesmo navegador).
+if (isFirebaseMock) {
+  if (!localStorage.getItem(MOCK_USERS_KEY)) {
+    localStorage.setItem(MOCK_USERS_KEY, JSON.stringify([defaultSupervisor, ...defaultTechnicians]));
   }
-})();
+  if (!localStorage.getItem(MOCK_ASSESSMENTS_KEY)) {
+    localStorage.setItem(MOCK_ASSESSMENTS_KEY, JSON.stringify(defaultSelfAssessments));
+  }
+  void (async () => {
+    for (const seedUser of [defaultSupervisor, ...defaultTechnicians]) {
+      if (!hasMockCredential(seedUser.uid)) await setMockCredential(seedUser.uid, DEMO_SEED_PASSWORD);
+    }
+  })();
+}
 
-const getMockUsers = (): User[] => {
-  const users = localStorage.getItem(MOCK_USERS_KEY);
-  return users ? JSON.parse(users) : [];
-};
+function readJson<T>(key: string): T[] {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+const getMockUsers = (): User[] => readJson<User>(MOCK_USERS_KEY);
+const saveMockUsers = (users: User[]) => localStorage.setItem(MOCK_USERS_KEY, JSON.stringify(users));
+const getMockAssessments = (): SelfAssessment[] => readJson<SelfAssessment>(MOCK_ASSESSMENTS_KEY);
 
-const saveMockUsers = (users: User[]) => {
-  localStorage.setItem(MOCK_USERS_KEY, JSON.stringify(users));
-};
-
-// --- SERVICE IMPLEMENTATION ---
+/**
+ * Lê-modifica-grava um usuário de forma ATÔMICA (transação) quando online,
+ * evitando que duas abas / supervisor + técnico se sobrescrevam (arrays de
+ * PDI e badges). Offline cai em leitura do cache + updateDoc enfileirado pelo SDK.
+ */
+async function mutateUser(uid: string, fn: (u: User) => Partial<User> | null): Promise<void> {
+  if (isFirebaseMock) {
+    const users = getMockUsers();
+    const idx = users.findIndex((u) => u.uid === uid);
+    if (idx === -1) throw new AppError('Usuário não encontrado.');
+    const patch = fn(users[idx]);
+    if (patch) {
+      users[idx] = { ...users[idx], ...patch };
+      saveMockUsers(users);
+    }
+    return;
+  }
+  const ref = doc(db, 'users', uid);
+  if (offlineSyncService.isOnline()) {
+    await offlineSyncService.run(() =>
+      runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new AppError('Usuário não encontrado.');
+        const patch = fn(snap.data() as User);
+        if (patch) tx.update(ref, patch);
+      }), 'atualização de perfil');
+    return;
+  }
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new AppError('Usuário não encontrado.');
+  const patch = fn(snap.data() as User);
+  if (patch) await offlineSyncService.run(() => updateDoc(ref, patch), 'atualização de perfil');
+}
 
 export const userService = {
   async getUser(uid: string): Promise<User | null> {
-    if (offlineSyncService.isOnline() && !isFirebaseMock) {
-      try {
-        const docRef = doc(db, 'users', uid);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const fetchedUser = docSnap.data() as User;
-          // Cache user locally
-          const users = getMockUsers();
-          const idx = users.findIndex(u => u.uid === uid);
-          if (idx !== -1) {
-            users[idx] = fetchedUser;
-          } else {
-            users.push(fetchedUser);
-          }
-          saveMockUsers(users);
-          return fetchedUser;
-        }
-      } catch (error) {
-        console.error("Firebase error getting user, falling back to cache:", error);
-      }
-    }
-    
-    // Offline, mock or firebase failed: return local cache
-    const users = getMockUsers();
-    return users.find(u => u.uid === uid) || null;
+    if (isFirebaseMock) return getMockUsers().find((u) => u.uid === uid) ?? null;
+    const snap = await getDoc(doc(db, 'users', uid));
+    return snap.exists() ? (snap.data() as User) : null;
   },
 
   async createUser(user: User): Promise<void> {
-    // 1. Save to local cache first
-    const users = getMockUsers();
-    if (!users.some(u => u.uid === user.uid)) {
-      users.push(user);
-      saveMockUsers(users);
+    if (isFirebaseMock) {
+      const users = getMockUsers();
+      if (!users.some((u) => u.uid === user.uid)) saveMockUsers([...users, user]);
+      return;
     }
-
-    // 2. Write to Firestore if online and not mock, otherwise enqueue
-    if (!isFirebaseMock && offlineSyncService.isOnline()) {
-      try {
-        await setDoc(doc(db, 'users', user.uid), user);
-      } catch (error) {
-        console.error("Firebase error creating user, enqueueing for sync:", error);
-        offlineSyncService.enqueue('createUser', user);
-      }
-    } else if (!offlineSyncService.isOnline()) {
-      offlineSyncService.enqueue('createUser', user);
-    }
+    await offlineSyncService.run(() => setDoc(doc(db, 'users', user.uid), user), 'cadastro');
   },
 
   async getAllTechnicians(): Promise<User[]> {
-    if (offlineSyncService.isOnline() && !isFirebaseMock) {
-      try {
-        const q = query(collection(db, 'users'), where('role', '==', 'technician'));
-        const querySnapshot = await getDocs(q);
-        const list: User[] = [];
-        querySnapshot.forEach((doc) => {
-          list.push(doc.data() as User);
-        });
-
-        // Sync local cache with Firestore technicians
-        const cachedUsers = getMockUsers();
-        const updatedUsers = [...cachedUsers];
-        list.forEach(tech => {
-          const idx = updatedUsers.findIndex(u => u.uid === tech.uid);
-          if (idx !== -1) {
-            updatedUsers[idx] = tech;
-          } else {
-            updatedUsers.push(tech);
-          }
-        });
-        saveMockUsers(updatedUsers);
-
-        return list;
-      } catch (error) {
-        console.error("Firebase error getting technicians, falling back to cache:", error);
-      }
-    }
-
-    // Offline or mock or firebase failed: return cache
-    return getMockUsers().filter(u => u.role === 'technician');
+    if (isFirebaseMock) return getMockUsers().filter((u) => u.role === 'technician' && scope.allows(u.team));
+    const managed = scope.get();
+    const base = [where('role', '==', 'technician'), ...(managed ? [where('team', '==', managed)] : [])];
+    const snap = await getDocs(query(collection(db, 'users'), ...base));
+    return snap.docs.map((d) => d.data() as User);
   },
 
   async updateUser(uid: string, data: Partial<User>): Promise<void> {
-    // 1. Update local cache first
-    const users = getMockUsers();
-    const idx = users.findIndex(u => u.uid === uid);
-    if (idx !== -1) {
-      users[idx] = { ...users[idx], ...data } as User;
-      saveMockUsers(users);
+    if (isFirebaseMock) {
+      await mutateUser(uid, () => data);
+      return;
     }
-
-    // 2. Update Firestore if online and not mock, otherwise enqueue
-    if (!isFirebaseMock && offlineSyncService.isOnline()) {
-      try {
-        const userRef = doc(db, 'users', uid);
-        await updateDoc(userRef, data);
-      } catch (error) {
-        console.error("Firebase error updating user, enqueueing for sync:", error);
-        offlineSyncService.enqueue('updateUser', { uid, data });
-      }
-    } else if (!offlineSyncService.isOnline()) {
-      offlineSyncService.enqueue('updateUser', { uid, data });
-    }
+    await offlineSyncService.run(() => updateDoc(doc(db, 'users', uid), data), 'atualização de perfil');
   },
 
   async toggleUserActive(uid: string, active: boolean): Promise<void> {
     return this.updateUser(uid, { active });
   },
 
-  // PDI objectives management
+  // --- PDI --------------------------------------------------------------
   async addPDIGoal(uid: string, goal: PDIGoal): Promise<void> {
-    const user = await this.getUser(uid);
-    if (!user) return;
-    const structuredPDI = [...(user.structuredPDI || []), goal];
-    await this.updateUser(uid, { structuredPDI });
+    await mutateUser(uid, (u) => ({ structuredPDI: [...(u.structuredPDI ?? []), goal] }));
   },
 
-  async updatePDIGoalStatus(uid: string, goalId: string, status: 'pending' | 'in_progress' | 'completed'): Promise<void> {
-    const user = await this.getUser(uid);
-    if (!user) return;
-    
-    const goalToLog = (user.structuredPDI || []).find(g => g.id === goalId);
-
-    const structuredPDI = (user.structuredPDI || []).map(g => {
-      if (g.id === goalId) {
-        return status === 'completed' ? { ...g, status, completedAt: Timestamp.now() } : { ...g, status };
+  async updatePDIGoalStatus(uid: string, goalId: string, status: PDIGoal['status']): Promise<void> {
+    if (useCloudFunctions) {
+      // O servidor valida dono, transição e carimba completedAt.
+      const res = await httpsCallable<
+        { uid: string; goalId: string; status: string },
+        { goalTitle: string; userName: string; team: User['team']; previous: PDIGoal['status'] }
+      >(functions, 'setPdiGoalStatus')({ uid, goalId, status });
+      if (status === 'completed' && res.data.previous !== 'completed') {
+        await auditService.registerLog('pdi_goal_completion', goalId, uid, res.data.userName, res.data.team, {
+          goalId, goalTitle: res.data.goalTitle, technicianId: uid, completedAt: new Date().toISOString(),
+        });
       }
-      return g;
+      return;
+    }
+    let goalToLog: PDIGoal | undefined;
+    let userName = '';
+    let userTeam: User['team'] = 'back-office';
+    await mutateUser(uid, (u) => {
+      userName = u.name;
+      userTeam = u.team;
+      goalToLog = (u.structuredPDI ?? []).find((g) => g.id === goalId);
+      if (!goalToLog) throw new AppError('Meta do PDI não encontrada.');
+      return {
+        structuredPDI: u.structuredPDI.map((g) =>
+          g.id !== goalId ? g
+            : status === 'completed' ? { ...g, status, completedAt: Timestamp.now() } : { ...g, status }),
+      };
     });
-    
-    await this.updateUser(uid, { structuredPDI });
 
-    if (status === 'completed' && goalToLog) {
-      try {
-        await auditService.registerLog(
-          'pdi_goal_completion',
-          goalId,
-          user.uid,
-          user.name,
-          {
-            goalId,
-            goalTitle: goalToLog.title,
-            technicianId: user.uid,
-            completedAt: new Date().toISOString()
-          }
-        );
-      } catch (err) {
-        console.error("Error creating audit log for PDI goal completion:", err);
-      }
+    if (status === 'completed' && goalToLog && (goalToLog as PDIGoal).status !== 'completed') {
+      await auditService.registerLog('pdi_goal_completion', goalId, uid, userName, userTeam, {
+        goalId,
+        goalTitle: (goalToLog as PDIGoal).title,
+        technicianId: uid,
+        completedAt: new Date().toISOString(),
+      });
     }
   },
 
-  // Badges Management
+  // --- Badges -----------------------------------------------------------
   async addBadge(uid: string, badge: Badge): Promise<void> {
-    const user = await this.getUser(uid);
-    if (!user) return;
-    // Evitar duplicar badges pelo ID
-    if (user.badges?.some(b => b.id === badge.id)) return;
-    const badges = [...(user.badges || []), badge];
-    await this.updateUser(uid, { badges });
+    await mutateUser(uid, (u) =>
+      u.badges?.some((b) => b.id === badge.id) ? null : { badges: [...(u.badges ?? []), badge] });
   },
 
-  // Self assessment Management
-  async submitSelfAssessment(assessment: SelfAssessment): Promise<void> {
-    // 1. Update local cache first
-    const assessmentsRaw = localStorage.getItem(MOCK_ASSESSMENTS_KEY);
-    const assessments: SelfAssessment[] = assessmentsRaw ? JSON.parse(assessmentsRaw) : [];
-    assessments.push(assessment);
-    localStorage.setItem(MOCK_ASSESSMENTS_KEY, JSON.stringify(assessments));
+  /** (Cloud Functions) O servidor verifica as condições e concede os badges devidos. */
+  async claimBadges(): Promise<{ id: string; title: string }[]> {
+    const res = await httpsCallable<void, { granted: { id: string; title: string }[] }>(functions, 'claimBadges')();
+    return res.data.granted;
+  },
 
-    // 2. Write to Firestore if online and not mock, otherwise enqueue
-    if (!isFirebaseMock && offlineSyncService.isOnline()) {
-      try {
-        await setDoc(doc(db, 'selfAssessments', assessment.id), assessment);
-      } catch (error) {
-        console.error("Firebase error submitting assessment, enqueueing for sync:", error);
-        offlineSyncService.enqueue('submitSelfAssessment', assessment);
-      }
-    } else if (!offlineSyncService.isOnline()) {
-      offlineSyncService.enqueue('submitSelfAssessment', assessment);
+  // --- Autoavaliações ---------------------------------------------------
+  async submitSelfAssessment(assessment: SelfAssessment): Promise<void> {
+    if (isFirebaseMock) {
+      localStorage.setItem(MOCK_ASSESSMENTS_KEY, JSON.stringify([...getMockAssessments(), assessment]));
+      return;
     }
+    await offlineSyncService.run(() => setDoc(doc(db, 'selfAssessments', assessment.id), assessment), 'autoavaliação');
   },
 
   async getSelfAssessments(technicianId?: string): Promise<SelfAssessment[]> {
-    if (offlineSyncService.isOnline() && !isFirebaseMock) {
-      try {
-        let q = query(collection(db, 'selfAssessments'));
-        if (technicianId) {
-          q = query(collection(db, 'selfAssessments'), where('technicianId', '==', technicianId));
-        }
-        const querySnapshot = await getDocs(q);
-        const list: SelfAssessment[] = [];
-        querySnapshot.forEach((doc) => {
-          list.push(doc.data() as SelfAssessment);
-        });
-
-        // Sync local cache
-        const assessmentsRaw = localStorage.getItem(MOCK_ASSESSMENTS_KEY);
-        const cachedAssessments: SelfAssessment[] = assessmentsRaw ? JSON.parse(assessmentsRaw) : [];
-        const updatedAssessments = [...cachedAssessments];
-        list.forEach(assessment => {
-          const idx = updatedAssessments.findIndex(a => a.id === assessment.id);
-          if (idx !== -1) {
-            updatedAssessments[idx] = assessment;
-          } else {
-            updatedAssessments.push(assessment);
-          }
-        });
-        localStorage.setItem(MOCK_ASSESSMENTS_KEY, JSON.stringify(updatedAssessments));
-
-        return list;
-      } catch (error) {
-        console.error("Firebase error getting self assessments, falling back to cache:", error);
-      }
+    if (isFirebaseMock) {
+      const all = getMockAssessments().filter((a) => scope.allows(a.team));
+      return technicianId ? all.filter((a) => a.technicianId === technicianId) : all;
     }
-
-    // Offline or mock or firebase failed: return cache
-    const assessmentsRaw = localStorage.getItem(MOCK_ASSESSMENTS_KEY);
-    const assessments: SelfAssessment[] = assessmentsRaw ? JSON.parse(assessmentsRaw) : [];
-    if (technicianId) {
-      return assessments.filter(a => a.technicianId === technicianId);
-    }
-    return assessments;
+    const col = collection(db, 'selfAssessments');
+    const managed = scope.get();
+    const snap = await getDocs(
+      technicianId ? query(col, where('technicianId', '==', technicianId))
+        : managed ? query(col, where('team', '==', managed))
+        : query(col));
+    return snap.docs.map((d) => d.data() as SelfAssessment);
   },
 
+  /**
+   * Remove o perfil e os dados pessoais do colaborador (feedbacks e
+   * autoavaliações). Os logs de auditoria são imutáveis e mantidos por
+   * obrigação de conformidade. A conta do Firebase Auth NÃO pode ser apagada
+   * pelo cliente — sem perfil, o login é recusado (ver useAuth); a remoção
+   * definitiva da conta exige Admin SDK / Cloud Function.
+   */
   async deleteUser(uid: string): Promise<void> {
-    // 1. Delete from local cache
-    const users = getMockUsers();
-    const filtered = users.filter(u => u.uid !== uid);
-    saveMockUsers(filtered);
-
-    // 2. Delete from Firestore if online and not mock
-    if (!isFirebaseMock && offlineSyncService.isOnline()) {
-      try {
-        const userRef = doc(db, 'users', uid);
-        await deleteDoc(userRef);
-      } catch (error) {
-        console.error("Firebase error deleting user, enqueueing for sync:", error);
-        offlineSyncService.enqueue('deleteUser', uid);
-      }
-    } else if (!offlineSyncService.isOnline()) {
-      offlineSyncService.enqueue('deleteUser', uid);
+    if (isFirebaseMock) {
+      saveMockUsers(getMockUsers().filter((u) => u.uid !== uid));
+      return;
     }
-  }
+    if (useCloudFunctions) {
+      // Remove também a conta do Firebase Auth (só possível com Admin SDK).
+      await httpsCallable<{ uid: string }, { ok: boolean }>(functions, 'deleteUserAccount')({ uid });
+      return;
+    }
+    await offlineSyncService.run(async () => {
+      for (const name of ['feedbacks', 'selfAssessments'] as const) {
+        const snap = await getDocs(query(collection(db, name), where('technicianId', '==', uid)));
+        for (let i = 0; i < snap.docs.length; i += 400) {
+          const batch = writeBatch(db);
+          snap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+          await batch.commit();
+        }
+      }
+      await deleteDoc(doc(db, 'users', uid));
+    }, 'exclusão');
+  },
 };

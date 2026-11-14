@@ -1,11 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { ClipboardList, Star, AlertCircle, Loader2 } from 'lucide-react';
 import type { User, SelfAssessment as SelfAssessmentType } from '../../types';
+import { useDataEffect } from '../../hooks/useDataEffect';
+import { useModalA11y } from '../../hooks/useModalA11y';
+import { newId } from '../../services/ids';
 import { userService } from '../../services/userService';
 import { Timestamp } from '../../firebase';
 import confetti from 'canvas-confetti';
 import toast from 'react-hot-toast';
+import { friendlyError } from '../../services/errors';
 
 interface SelfAssessmentProps {
   userProfile: User;
@@ -32,24 +36,15 @@ export default function SelfAssessment({ userProfile, onSuccess, onClose }: Self
   const [comments, setComments] = useState('');
   const [loading, setLoading] = useState(false);
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
+  const dialogRef = useModalA11y<HTMLDivElement>(onClose);
   const [checking, setChecking] = useState(true);
 
-  useEffect(() => {
-    checkSubmission();
-  }, [userProfile.uid, currentPeriod]);
-
-  const checkSubmission = async () => {
-    setChecking(true);
-    try {
-      const list = await userService.getSelfAssessments(userProfile.uid);
-      const submitted = list.some(a => a.period === currentPeriod);
-      setAlreadySubmitted(submitted);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setChecking(false);
-    }
-  };
+  useDataEffect(
+    () => userService.getSelfAssessments(userProfile.uid),
+    (list) => { setAlreadySubmitted(list.some(a => a.period === currentPeriod)); setChecking(false); },
+    (err) => { console.error(err); setChecking(false); },
+    [userProfile.uid, currentPeriod]
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,8 +56,9 @@ export default function SelfAssessment({ userProfile, onSuccess, onClose }: Self
     setLoading(true);
     try {
       const assessment: SelfAssessmentType = {
-        id: 'sa_' + Date.now(),
+        id: newId('sa'),
         technicianId: userProfile.uid,
+        team: userProfile.team,
         period: currentPeriod,
         scores: {
           communication: comm,
@@ -89,7 +85,7 @@ export default function SelfAssessment({ userProfile, onSuccess, onClose }: Self
       onSuccess();
       onClose();
     } catch (err) {
-      toast.error('Erro ao enviar autoavaliação.');
+      toast.error(friendlyError(err, 'Erro ao enviar autoavaliação.'));
     } finally {
       setLoading(false);
     }
@@ -115,6 +111,10 @@ export default function SelfAssessment({ userProfile, onSuccess, onClose }: Self
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
         transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Autoavaliação individual"
         className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 max-w-lg w-full shadow-2xl overflow-hidden max-h-[90vh] flex flex-col text-left"
       >
         {/* Header */}

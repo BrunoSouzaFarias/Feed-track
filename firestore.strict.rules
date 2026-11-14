@@ -1,0 +1,355 @@
+// ARQUIVO GERADO a partir de firestore.rules (npm run rules:strict). Não edite à mão.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSupervisor() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'supervisor' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true;
+    }
+
+    // Escopo opcional de supervisor por equipe: `users/{supervisor}.managedTeam`
+    // ('back-office' | 'teleservice'). Ausente/null = gerencia TODAS as equipes
+    // (comportamento padrão). Com valor, só enxerga/altera dados dessa equipe.
+    function supData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function supervisorOf(team) {
+      return isSupervisor() && (supData().get('managedTeam', null) == null || supData().get('managedTeam', null) == team);
+    }
+    // Só supervisor SEM escopo pode alterar role/managedTeam (evita auto-promoção/auto-remoção de escopo).
+    function isFullSupervisor() {
+      return isSupervisor() && supData().get('managedTeam', null) == null;
+    }
+
+    function supDataTeam() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.team;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Conta desativada pelo supervisor perde acesso mesmo com token válido.
+    function isActiveUser() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true;
+    }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function isTeam(v) {
+      return v in ['back-office', 'teleservice'];
+    }
+
+    // Interruptor do cadastro público: config/signup { open: boolean }.
+    // Ausente = aberto (padrão). Fechado => só supervisor cria perfis (convite).
+    function signupOpen() {
+      return !exists(/databases/$(database)/documents/config/signup) ||
+        get(/databases/$(database)/documents/config/signup).data.get('open', true) == true;
+    }
+
+    // ------------------------------------------------------------------
+    // config
+    // ------------------------------------------------------------------
+    match /config/signup {
+      allow read: if true; // só um booleano; a tela de cadastro precisa lê-lo ANTES do login
+      allow create, update: if isFullSupervisor() &&
+        request.resource.data.keys().hasOnly(['open','updatedAt','updatedBy']) &&
+        request.resource.data.open is bool &&
+        request.resource.data.updatedBy == request.auth.uid &&
+        request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // users
+    // ------------------------------------------------------------------
+    match /users/{userId} {
+      allow read: if isOwner(userId) || supervisorOf(resource.data.get('team', null));
+
+      // Auto-cadastro: SEMPRE técnico, ativo, sem badges/PDI e com o e-mail
+      // do token (impede forjar e-mail/uid de terceiros).
+      // Somente um supervisor pode criar outro perfil arbitrário.
+      allow create: if (supervisorOf(request.resource.data.team) &&
+         (isFullSupervisor() || request.resource.data.role == 'technician')) ||
+        (isOwner(userId) && signupOpen() &&
+         request.resource.data.keys().hasOnly(['uid','name','email','role','team','position','photoURL','phone','active','createdAt','badges','structuredPDI']) &&
+         request.resource.data.uid == userId &&
+         request.resource.data.role == 'technician' &&
+         request.resource.data.active == true &&
+         request.resource.data.email == request.auth.token.email &&
+         request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 120 &&
+         request.resource.data.position is string && request.resource.data.position.size() <= 120 &&
+         isTeam(request.resource.data.team) &&
+         request.resource.data.badges.size() == 0 &&
+         request.resource.data.structuredPDI.size() == 0);
+
+      // MODO ESTRITO (requer as Cloud Functions de /functions): PDI e badges só mudam pelo servidor
+      // (Admin SDK) ou por supervisor; o dono só edita dados cadastrais leves.
+      allow update: if (supervisorOf(resource.data.team) && supervisorOf(request.resource.data.team) &&
+         (isFullSupervisor() || !changedKeys().hasAny(['role','managedTeam']))) ||
+        (isOwner(userId) && isActiveUser() &&
+         changedKeys().hasOnly(['name','phone','photoURL']));
+
+      allow delete: if supervisorOf(resource.data.team);
+    }
+
+    // ------------------------------------------------------------------
+    // feedbacks
+    // ------------------------------------------------------------------
+    match /feedbacks/{feedbackId} {
+      allow read: if supervisorOf(resource.data.get('team', null)) ||
+        (isActiveUser() && resource.data.technicianId == request.auth.uid);
+
+      // Apenas supervisores criam feedback, em seu próprio nome, e sempre
+      // pendente e sem assinatura pré-fabricada.
+      allow create: if supervisorOf(request.resource.data.team) &&
+        request.resource.data.keys().hasOnly(['id','technicianId','technicianName','supervisorId','team','type','axis','description','status','createdAt']) &&
+        // `team` denormalizado precisa ser a equipe real do colaborador
+        request.resource.data.team == get(/databases/$(database)/documents/users/$(request.resource.data.technicianId)).data.team &&
+        request.resource.data.id == feedbackId &&
+        request.resource.data.supervisorId == request.auth.uid &&
+        request.resource.data.type in ['positive','development'] &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.axis is string && request.resource.data.axis.size() <= 100 &&
+        request.resource.data.description is string &&
+        request.resource.data.description.size() >= 1 &&
+        request.resource.data.description.size() <= 3500 &&
+        request.resource.data.technicianName is string && request.resource.data.technicianName.size() <= 120 &&
+        request.resource.data.createdAt is timestamp;
+
+      // Técnico pode APENAS marcar como lido / assinar o próprio feedback.
+      // Conteúdo (descrição, tipo, eixo, destinatário, autor) é imutável.
+      allow update: if (supervisorOf(resource.data.get('team', null)) &&
+         request.resource.data.get('team', null) == resource.data.get('team', null)) ||
+        (isActiveUser() &&
+         resource.data.technicianId == request.auth.uid &&
+         changedKeys().hasOnly(['status','readAt','signedAt']) &&
+         request.resource.data.status == 'read' &&
+         (!('signedAt' in resource.data) || request.resource.data.signedAt == resource.data.signedAt));
+
+      allow delete: if supervisorOf(resource.data.get('team', null));
+    }
+
+    // ------------------------------------------------------------------
+    // selfAssessments
+    // ------------------------------------------------------------------
+    match /selfAssessments/{assessmentId} {
+      allow read: if supervisorOf(resource.data.get('team', null)) ||
+        (isActiveUser() && resource.data.technicianId == request.auth.uid);
+
+      allow create: if isActiveUser() &&
+        request.resource.data.technicianId == request.auth.uid &&
+        request.resource.data.keys().hasOnly(['id','technicianId','team','period','scores','comments','createdAt']) &&
+        request.resource.data.team == supDataTeam() &&
+        request.resource.data.id == assessmentId &&
+        request.resource.data.period.matches('^[0-9]{4}-Q[1-4]$') &&
+        request.resource.data.comments is string && request.resource.data.comments.size() <= 2000 &&
+        request.resource.data.scores.keys().hasOnly(['communication','teamwork','technical','proactivity','attendance']) &&
+        request.resource.data.scores.communication is number && request.resource.data.scores.communication >= 1 && request.resource.data.scores.communication <= 5 &&
+        request.resource.data.scores.teamwork is number && request.resource.data.scores.teamwork >= 1 && request.resource.data.scores.teamwork <= 5 &&
+        request.resource.data.scores.technical is number && request.resource.data.scores.technical >= 1 && request.resource.data.scores.technical <= 5 &&
+        request.resource.data.scores.proactivity is number && request.resource.data.scores.proactivity >= 1 && request.resource.data.scores.proactivity <= 5 &&
+        request.resource.data.scores.attendance is number && request.resource.data.scores.attendance >= 1 && request.resource.data.scores.attendance <= 5;
+
+      // Autoavaliação enviada não é editável (histórico confiável).
+      allow update: if supervisorOf(resource.data.get('team', null)) &&
+        request.resource.data.get('team', null) == resource.data.get('team', null);
+      allow delete: if supervisorOf(resource.data.get('team', null));
+    }
+
+    // ------------------------------------------------------------------
+    // Avaliação de Home Office
+    // ------------------------------------------------------------------
+    // Semana fechada = existe homeOfficeWeeks/{weekId}_{technicianId}.
+    function hoWeekClosed(weekId, techId) {
+      return exists(/databases/$(database)/documents/homeOfficeWeeks/$(weekId + '_' + techId));
+    }
+    function isYmd(v) {
+      return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+    function teamOfUser(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data.team;
+    }
+
+    match /config/homeOffice {
+      allow read: if isActiveUser();
+      allow create, update: if isFullSupervisor() &&
+        request.resource.data.keys().hasOnly(['categories','threshold','updatedAt','updatedBy']) &&
+        request.resource.data.threshold is number &&
+        request.resource.data.threshold >= 0 && request.resource.data.threshold <= 100 &&
+        request.resource.data.categories is list &&
+        request.resource.data.categories.size() >= 1 && request.resource.data.categories.size() <= 30 &&
+        request.resource.data.updatedBy == request.auth.uid &&
+        request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /homeOfficePoints/{pointId} {
+      // Colaborador só enxerga depois de a semana ser fechada.
+      allow read: if supervisorOf(resource.data.team) ||
+        (isActiveUser() && resource.data.technicianId == request.auth.uid &&
+         hoWeekClosed(resource.data.weekId, resource.data.technicianId));
+
+      allow create: if supervisorOf(request.resource.data.team) &&
+        request.resource.data.keys().hasOnly(['id','technicianId','technicianName','team','weekId','categoryId','categoryLabel','points','note','occurredOn','hasEvidence','status','createdBy','createdAt']) &&
+        request.resource.data.id == pointId &&
+        request.resource.data.team == teamOfUser(request.resource.data.technicianId) &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.status == 'active' &&
+        request.resource.data.points is int &&
+        request.resource.data.points >= 1 && request.resource.data.points <= 100 &&
+        request.resource.data.note is string &&
+        request.resource.data.note.size() >= 10 && request.resource.data.note.size() <= 1000 &&
+        isYmd(request.resource.data.weekId) && isYmd(request.resource.data.occurredOn) &&
+        request.resource.data.hasEvidence is bool &&
+        request.resource.data.categoryId is string && request.resource.data.categoryId.size() <= 60 &&
+        request.resource.data.categoryLabel is string && request.resource.data.categoryLabel.size() <= 200 &&
+        request.resource.data.technicianName is string && request.resource.data.technicianName.size() <= 120 &&
+        request.resource.data.createdAt is timestamp &&
+        !hoWeekClosed(request.resource.data.weekId, request.resource.data.technicianId);
+
+      // Nunca editado: só cancelado (com motivo), e só com a semana aberta.
+      allow update: if supervisorOf(resource.data.team) &&
+        !hoWeekClosed(resource.data.weekId, resource.data.technicianId) &&
+        resource.data.status == 'active' && request.resource.data.status == 'cancelled' &&
+        changedKeys().hasOnly(['status','cancelReason','cancelledBy','cancelledAt']) &&
+        request.resource.data.cancelReason is string &&
+        request.resource.data.cancelReason.size() >= 5 && request.resource.data.cancelReason.size() <= 500 &&
+        request.resource.data.cancelledBy == request.auth.uid &&
+        request.resource.data.cancelledAt == request.time;
+
+      allow delete: if false;
+    }
+
+    match /homeOfficeEvidence/{pointId} {
+      allow read: if supervisorOf(resource.data.team) ||
+        (isActiveUser() && resource.data.technicianId == request.auth.uid &&
+         hoWeekClosed(resource.data.weekId, resource.data.technicianId));
+
+      allow create: if supervisorOf(request.resource.data.team) &&
+        request.resource.data.keys().hasOnly(['pointId','technicianId','team','weekId','dataUrl','createdBy','createdAt']) &&
+        request.resource.data.pointId == pointId &&
+        request.resource.data.team == teamOfUser(request.resource.data.technicianId) &&
+        request.resource.data.createdBy == request.auth.uid &&
+        isYmd(request.resource.data.weekId) &&
+        request.resource.data.dataUrl is string &&
+        request.resource.data.dataUrl.matches('^data:image/jpeg;base64,.*') &&
+        request.resource.data.dataUrl.size() <= 900000 &&
+        request.resource.data.createdAt is timestamp &&
+        !hoWeekClosed(request.resource.data.weekId, request.resource.data.technicianId);
+
+      allow update, delete: if false;
+    }
+
+    match /homeOfficeWeeks/{weekDocId} {
+      allow read: if supervisorOf(resource.data.team) ||
+        (isActiveUser() && resource.data.technicianId == request.auth.uid);
+
+      // Fechar a semana (criar o documento). Um segundo "fechar" seria update → negado.
+      allow create: if supervisorOf(request.resource.data.team) &&
+        request.resource.data.keys().hasOnly(['id','technicianId','technicianName','team','weekId','score','threshold','eligible','closedBy','closedAt']) &&
+        request.resource.data.id == weekDocId &&
+        isYmd(request.resource.data.weekId) &&
+        weekDocId == request.resource.data.weekId + '_' + request.resource.data.technicianId &&
+        request.resource.data.team == teamOfUser(request.resource.data.technicianId) &&
+        request.resource.data.closedBy == request.auth.uid &&
+        request.resource.data.closedAt == request.time &&
+        request.resource.data.score is number &&
+        request.resource.data.score >= 0 && request.resource.data.score <= 100 &&
+        request.resource.data.threshold is number &&
+        request.resource.data.threshold >= 0 && request.resource.data.threshold <= 100 &&
+        request.resource.data.eligible is bool;
+
+      // Ciência: só o dono, uma única vez, sem tocar no resultado.
+      allow update: if isActiveUser() && resource.data.technicianId == request.auth.uid &&
+        !('ackAt' in resource.data) &&
+        changedKeys().hasOnly(['ackAt','ackComment']) &&
+        request.resource.data.ackAt == request.time &&
+        request.resource.data.ackComment is string && request.resource.data.ackComment.size() <= 1000;
+
+      // Reabrir: só enquanto a pessoa não assinou.
+      allow delete: if supervisorOf(resource.data.team) && !('ackAt' in resource.data);
+    }
+
+    // ------------------------------------------------------------------
+    // signingKeys — âncora das chaves públicas de assinatura (1ª chave vence)
+    // ------------------------------------------------------------------
+    match /signingKeys/{userId} {
+      // Chaves PÚBLICAS não são segredo: qualquer usuário ativo lê (permite verificar assinaturas).
+      allow read: if isActiveUser();
+      allow create: if isOwner(userId) && isActiveUser() &&
+        request.resource.data.keys().hasOnly(['uid','publicKey','createdAt']) &&
+        request.resource.data.uid == userId &&
+        request.resource.data.publicKey is string &&
+        request.resource.data.publicKey.size() > 0 && request.resource.data.publicKey.size() <= 1024 &&
+        request.resource.data.createdAt == request.time;
+      // Imutável: trocar de chave/dispositivo exige reset por um supervisor.
+      allow update: if false;
+      allow delete: if isFullSupervisor();
+    }
+
+    // ------------------------------------------------------------------
+    // auditLogs — imutáveis; criação só com evidência real no banco
+    // ------------------------------------------------------------------
+    match /auditLogs/{logId} {
+      allow read: if supervisorOf(resource.data.get('team', null)) ||
+        (isActiveUser() && resource.data.technicianId == request.auth.uid);
+
+      allow create: if isActiveUser() &&
+        request.resource.data.keys().hasOnly(['id','timestamp','eventType','entityId','technicianId','technicianName','team','details','hash','signature','publicKey','signerId','createdAt']) &&
+        request.resource.data.team == get(/databases/$(database)/documents/users/$(request.resource.data.technicianId)).data.team &&
+        request.resource.data.id == logId &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.hash.matches('^[0-9a-f]{64}$') &&
+        request.resource.data.signature is string && request.resource.data.signature.size() > 0 && request.resource.data.signature.size() <= 512 &&
+        request.resource.data.publicKey is string && request.resource.data.publicKey.size() <= 1024 &&
+        // Quem assina é quem está logado e a chave usada TEM de ser a ancorada para ele.
+        request.resource.data.signerId == request.auth.uid &&
+        exists(/databases/$(database)/documents/signingKeys/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/signingKeys/$(request.auth.uid)).data.publicKey == request.resource.data.publicKey &&
+        (
+          // Assinatura de feedback: o feedback precisa existir, ser do
+          // técnico informado e já estar assinado (signedAt gravado antes).
+          (request.resource.data.eventType == 'feedback_signature' &&
+           isOwner(request.resource.data.technicianId) &&
+           exists(/databases/$(database)/documents/feedbacks/$(request.resource.data.entityId)) &&
+           get(/databases/$(database)/documents/feedbacks/$(request.resource.data.entityId)).data.technicianId == request.resource.data.technicianId &&
+           'signedAt' in get(/databases/$(database)/documents/feedbacks/$(request.resource.data.entityId)).data)
+          ||
+          // Conclusão de meta do PDI: o próprio técnico ou um supervisor.
+          (request.resource.data.eventType == 'pdi_goal_completion' &&
+           (isOwner(request.resource.data.technicianId) || supervisorOf(request.resource.data.team)))
+          ||
+          // Ciência da avaliação de home office: a semana existe, é do próprio
+          // colaborador e já foi assinada (ackAt gravado antes).
+          (request.resource.data.eventType == 'home_office_ack' &&
+           isOwner(request.resource.data.technicianId) &&
+           exists(/databases/$(database)/documents/homeOfficeWeeks/$(request.resource.data.entityId)) &&
+           get(/databases/$(database)/documents/homeOfficeWeeks/$(request.resource.data.entityId)).data.technicianId == request.resource.data.technicianId &&
+           'ackAt' in get(/databases/$(database)/documents/homeOfficeWeeks/$(request.resource.data.entityId)).data)
+        );
+
+      // Trilha de auditoria imutável.
+      allow update, delete: if false;
+    }
+
+    // Negar tudo que não foi explicitamente liberado.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, createElement } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, createElement } from 'react';
 import { initializeApp, deleteApp } from 'firebase/app';
 import {
   signInWithEmailAndPassword,
@@ -6,213 +6,250 @@ import {
   onAuthStateChanged,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
-  getAuth
+  sendEmailVerification,
+  getAuth,
 } from 'firebase/auth';
 import { auth, db, firebaseConfig } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, Timestamp } from 'firebase/firestore';
 import type { User } from '../types';
 import { userService } from '../services/userService';
-import { Timestamp } from 'firebase/firestore';
-import { nowTimestamp } from '../services/dateUtils';
 import { setMockCredential, verifyMockCredential } from '../services/credentialUtils';
+import { isFirebaseMock } from '../services/env';
+import { AppError, friendlyError } from '../services/errors';
+import { newId } from '../services/ids';
+import { sessionHint } from '../services/sessionHint';
+import { purgeLegacyLocalData } from '../services/legacyCleanup';
+import { scope } from '../services/scope';
+import { validatePassword } from '../services/passwordPolicy';
+import { signupService } from '../services/signupService';
 import toast from 'react-hot-toast';
+
+type Team = 'back-office' | 'teleservice';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  emailVerified: boolean;
   login: (email: string, pass: string) => Promise<User>;
-  register: (name: string, email: string, pass: string, team: 'back-office' | 'teleservice', position: string, role?: 'technician' | 'supervisor') => Promise<User>;
+  /** Cadastro público: SEMPRE cria técnico. */
+  register: (name: string, email: string, pass: string, team: Team, position: string) => Promise<User>;
   logout: () => Promise<void>;
-  createTechnicianBySupervisor: (name: string, email: string, pass: string, team: 'back-office' | 'teleservice', position: string) => Promise<void>;
+  createTechnicianBySupervisor: (name: string, email: string, pass: string, team: Team, position: string) => Promise<void>;
   sendPasswordReset: (email: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const isFirebaseMock = !import.meta.env.VITE_FIREBASE_API_KEY ||
-  import.meta.env.VITE_FIREBASE_API_KEY.includes('mock') ||
-  import.meta.env.VITE_FIREBASE_API_KEY.includes('dummy');
+const MOCK_USERS_KEY = 'feed_track_mock_users';
+const MOCK_SESSION_KEY = 'feed_track_active_uid';
 
-// Session storage helpers — preferem sessionStorage para não expor UID entre abas/sessões
-const session = {
-  get: (key: string) => sessionStorage.getItem(key),
-  set: (key: string, val: string) => sessionStorage.setItem(key, val),
-  remove: (key: string) => { sessionStorage.removeItem(key); localStorage.removeItem(key); },
+const readMockUsers = (): User[] => {
+  try {
+    const raw = localStorage.getItem(MOCK_USERS_KEY);
+    return raw ? (JSON.parse(raw) as User[]) : [];
+  } catch {
+    return [];
+  }
 };
 
+// ---------------------------------------------------------------------------
+// Proteção básica contra força bruta no cliente (o Firebase também limita no
+// servidor; isto reduz ruído e dá feedback imediato).
+// ---------------------------------------------------------------------------
+const MAX_ATTEMPTS = 5;
+const LOCKOUT_MS = 60_000;
+const attempts = { count: 0, lockedUntil: 0 };
+
+function assertNotLockedOut() {
+  const remaining = attempts.lockedUntil - Date.now();
+  if (remaining > 0) {
+    throw new AppError(`Muitas tentativas. Aguarde ${Math.ceil(remaining / 1000)}s e tente novamente.`);
+  }
+}
+function registerFailure() {
+  attempts.count += 1;
+  if (attempts.count >= MAX_ATTEMPTS) {
+    attempts.lockedUntil = Date.now() + LOCKOUT_MS;
+    attempts.count = 0;
+  }
+}
+
+function newProfile(uid: string, name: string, email: string, team: Team, position: string): User {
+  return {
+    uid, name: name.trim(), email: email.trim(), role: 'technician', team,
+    position: position.trim(), active: true, createdAt: Timestamp.now(), badges: [], structuredPDI: [],
+  };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUserState] = useState<User | null>(null);
+  // O escopo é definido SÍNCRONO junto com o usuário: effects dos filhos (que já buscam dados) rodam antes dos do pai.
+  const setUser = (u: User | null) => { scope.set(u); setUserState(u); };
+  // Em modo mock sem sessão não há nada a restaurar: já nasce "carregado" (sem setState síncrono no effect).
+  const [loading, setLoading] = useState(() => !(isFirebaseMock && !sessionStorage.getItem(MOCK_SESSION_KEY)));
+  const [emailVerified, setEmailVerified] = useState(true);
+  // Evita a corrida "conta criada no Auth → listener roda antes do perfil existir".
+  const registeringRef = useRef(false);
 
   useEffect(() => {
     if (isFirebaseMock) {
-      const activeUid = session.get('feed_track_active_uid') ?? localStorage.getItem('feed_track_active_uid');
-      if (activeUid) {
-        userService.getUser(activeUid).then(dbUser => {
-          if (dbUser) {
-            setUser(dbUser);
-            session.set('feed_track_logged_in', 'true');
-          } else {
-            session.remove('feed_track_active_uid');
-            session.remove('feed_track_logged_in');
-          }
-          setLoading(false);
-        }).catch(err => {
-          console.error("Error restoring mock session, logging out:", err);
-          session.remove('feed_track_active_uid');
-          session.remove('feed_track_logged_in');
-          setLoading(false);
-        });
-      } else {
-        session.remove('feed_track_logged_in');
-        setLoading(false);
+      const activeUid = sessionStorage.getItem(MOCK_SESSION_KEY);
+      if (!activeUid) {
+        sessionHint.clear();
+        return;
       }
+      userService.getUser(activeUid).then((dbUser) => {
+        if (dbUser && dbUser.active !== false) {
+          setUser(dbUser);
+          sessionHint.set();
+        } else {
+          sessionStorage.removeItem(MOCK_SESSION_KEY);
+          sessionHint.clear();
+        }
+      }).catch((err) => {
+        console.error('Error restoring mock session:', err);
+        sessionStorage.removeItem(MOCK_SESSION_KEY);
+        sessionHint.clear();
+      }).finally(() => setLoading(false));
       return;
     }
 
+    purgeLegacyLocalData();
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (registeringRef.current) return; // register() assume o controle do estado
       if (!firebaseUser) {
         setUser(null);
-        session.remove('feed_track_logged_in');
+        sessionHint.clear();
         setLoading(false);
         return;
       }
-
       try {
-        // Read the Firestore doc directly (not via userService.getUser) so a
-        // transient network/rules error THROWS instead of silently resolving
-        // to null from an empty local cache — that distinction matters: only
-        // a genuinely missing doc should trigger fallback-user creation.
+        // getDoc direto: erro transitório LANÇA (não vira "perfil inexistente").
         const docSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
-        if (docSnap.exists()) {
-          const dbUser = docSnap.data() as User;
-          setUser(dbUser);
-          session.set('feed_track_logged_in', 'true');
-        } else {
-          // Firebase Auth user exists but has no Firestore profile yet — safe to create one.
-          const fallbackUser: User = {
-            uid: firebaseUser.uid,
-            name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Novo Técnico',
-            email: firebaseUser.email || '',
-            role: 'technician',
-            team: 'back-office',
-            position: 'Agente N1',
-            active: true,
-            createdAt: Timestamp.now(),
-            badges: [],
-            structuredPDI: []
-          };
-          await userService.createUser(fallbackUser);
-          setUser(fallbackUser);
-          session.set('feed_track_logged_in', 'true');
+        if (!docSnap.exists()) {
+          // Conta sem perfil (ex.: excluída pelo supervisor): NÃO ressuscitar.
+          await signOut(auth);
+          setUser(null);
+          sessionHint.clear();
+          toast.error('Perfil não encontrado. Procure seu supervisor.');
+          return;
         }
+        const dbUser = docSnap.data() as User;
+        if (dbUser.active === false) {
+          await signOut(auth);
+          setUser(null);
+          sessionHint.clear();
+          toast.error('Esta conta foi desativada pelo supervisor.');
+          return;
+        }
+        setEmailVerified(firebaseUser.emailVerified);
+        setUser(dbUser);
+        sessionHint.set();
       } catch (err) {
-        // Do NOT fabricate/overwrite a user doc on a transient failure — that
-        // would clobber an existing profile (e.g. a supervisor's role/PDI data).
-        console.error("Could not verify user profile, logging out safely:", err);
+        console.error('Could not verify user profile:', err);
         setUser(null);
         toast.error('Não foi possível verificar sua sessão. Tente novamente.');
       } finally {
         setLoading(false);
       }
     });
-
     return () => unsubscribe();
   }, []);
 
   const login = async (email: string, pass: string): Promise<User> => {
+    assertNotLockedOut();
     setLoading(true);
     try {
       if (isFirebaseMock) {
-        // Mock authentication check
-        const usersRaw = localStorage.getItem('feed_track_mock_users');
-        const users: User[] = usersRaw ? JSON.parse(usersRaw) : [];
-        // Support standard mock accounts
-        const found = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-        if (!found) {
-          throw new Error("Usuário não encontrado.");
+        const found = readMockUsers().find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
+        // Mensagem única: não revela se o e-mail existe (evita enumeração).
+        if (!found || !(await verifyMockCredential(found.uid, pass))) {
+          registerFailure();
+          throw new AppError('E-mail ou senha inválidos.');
         }
-        const passwordValid = await verifyMockCredential(found.uid, pass);
-        if (!passwordValid) {
-          throw new Error("E-mail ou senha inválidos.");
-        }
-        if (found.active === false) {
-          throw new Error("Esta conta foi desativada pelo supervisor.");
-        }
-        session.set('feed_track_active_uid', found.uid);
-        session.set('feed_track_logged_in', 'true');
+        if (found.active === false) throw new AppError('Esta conta foi desativada pelo supervisor.');
+        attempts.count = 0;
+        sessionStorage.setItem(MOCK_SESSION_KEY, found.uid);
+        sessionHint.set();
         setUser(found);
         return found;
       }
 
-      const credential = await signInWithEmailAndPassword(auth, email, pass);
+      let credential;
+      try {
+        credential = await signInWithEmailAndPassword(auth, email.trim(), pass);
+      } catch (err) {
+        registerFailure();
+        throw new AppError(friendlyError(err, 'Falha ao autenticar.'));
+      }
       const dbUser = await userService.getUser(credential.user.uid);
       if (!dbUser) {
-        throw new Error("Usuário não encontrado nos registros.");
+        await signOut(auth);
+        throw new AppError('Perfil não encontrado. Procure seu supervisor.');
       }
       if (dbUser.active === false) {
         await signOut(auth);
-        throw new Error("Esta conta foi desativada pelo supervisor.");
+        throw new AppError('Esta conta foi desativada pelo supervisor.');
       }
-      localStorage.setItem('feed_track_logged_in', 'true');
+      attempts.count = 0;
+      setEmailVerified(credential.user.emailVerified);
+      sessionHint.set();
       setUser(dbUser);
       return dbUser;
-    } catch (error: any) {
-      setLoading(false);
-      throw error;
     } finally {
       setLoading(false);
     }
   };
 
-  const register = async (
-    name: string, 
-    email: string, 
-    pass: string, 
-    team: 'back-office' | 'teleservice', 
-    position: string,
-    role: 'technician' | 'supervisor' = 'technician'
-  ): Promise<User> => {
+  const register: AuthContextType['register'] = async (name, email, pass, team, position) => {
+    const policyError = validatePassword(pass);
+    if (policyError) throw new AppError(policyError);
+    // Restrição opcional do cadastro público a um domínio corporativo
+    // (VITE_ALLOWED_EMAIL_DOMAIN=empresa.com). Defesa em profundidade: o
+    // controle forte deve ser feito no servidor (ver docs/SECURITY.md).
+    const allowedDomain = import.meta.env.VITE_ALLOWED_EMAIL_DOMAIN?.trim().toLowerCase();
+    if (allowedDomain && !email.trim().toLowerCase().endsWith(`@${allowedDomain}`)) {
+      throw new AppError(`Use seu e-mail corporativo (@${allowedDomain}).`);
+    }
     setLoading(true);
     try {
-      const uid = isFirebaseMock ? 'mock_user_' + Date.now() : '';
-      const newUser: User = {
-        uid: uid,
-        name,
-        email,
-        role,
-        team,
-        position,
-        active: true,
-        createdAt: (isFirebaseMock ? nowTimestamp() : Timestamp.now()) as any,
-        badges: [],
-        structuredPDI: []
-      };
-
       if (isFirebaseMock) {
-        const usersRaw = localStorage.getItem('feed_track_mock_users');
-        const users: User[] = usersRaw ? JSON.parse(usersRaw) : [];
-        if (users.some(u => u.email.toLowerCase() === email.toLowerCase())) {
-          throw new Error("Este e-mail já está cadastrado.");
+        if (!(await signupService.isOpen())) throw new AppError('O cadastro público está desativado. Peça a um supervisor para criar sua conta.');
+        const users = readMockUsers();
+        if (users.some((u) => u.email.toLowerCase() === email.trim().toLowerCase())) {
+          throw new AppError('Este e-mail já está cadastrado.');
         }
-        users.push(newUser);
-        localStorage.setItem('feed_track_mock_users', JSON.stringify(users));
-        await setMockCredential(uid, pass);
-        session.set('feed_track_active_uid', uid);
-        session.set('feed_track_logged_in', 'true');
-        setUser(newUser);
-        return newUser;
+        const created = newProfile(newId('mock_user'), name, email, team, position);
+        localStorage.setItem(MOCK_USERS_KEY, JSON.stringify([...users, created]));
+        await setMockCredential(created.uid, pass);
+        sessionStorage.setItem(MOCK_SESSION_KEY, created.uid);
+        sessionHint.set();
+        setUser(created);
+        return created;
       }
 
-      const credential = await createUserWithEmailAndPassword(auth, email, pass);
-      newUser.uid = credential.user.uid;
-      await userService.createUser(newUser);
-      localStorage.setItem('feed_track_logged_in', 'true');
-      setUser(newUser);
-      return newUser;
-    } catch (error: any) {
-      setLoading(false);
-      throw error;
+      registeringRef.current = true;
+      try {
+        const credential = await createUserWithEmailAndPassword(auth, email.trim(), pass);
+        const created = newProfile(credential.user.uid, name, email, team, position);
+        try {
+          await userService.createUser(created);
+        } catch (err) {
+          // Não deixar conta órfã (Auth sem perfil): desfaz o cadastro.
+          await credential.user.delete().catch(() => signOut(auth));
+          throw err;
+        }
+        sendEmailVerification(credential.user).catch((e) => console.warn('Verification e-mail failed:', e));
+        setEmailVerified(false);
+        sessionHint.set();
+        setUser(created);
+        return created;
+      } catch (err) {
+        throw err instanceof AppError ? err : new AppError(friendlyError(err, 'Não foi possível concluir o cadastro.'));
+      } finally {
+        registeringRef.current = false;
+      }
     } finally {
       setLoading(false);
     }
@@ -222,99 +259,77 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       if (isFirebaseMock) {
-        session.remove('feed_track_active_uid');
+        sessionStorage.removeItem(MOCK_SESSION_KEY);
       } else {
         await signOut(auth);
+        purgeLegacyLocalData();
       }
-      localStorage.removeItem('feed_track_logged_in');
+      sessionHint.clear();
       setUser(null);
     } finally {
       setLoading(false);
     }
   };
 
-  const createTechnicianBySupervisor = async (
-    name: string,
-    email: string,
-    pass: string,
-    team: 'back-office' | 'teleservice',
-    position: string
-  ): Promise<void> => {
+  const createTechnicianBySupervisor: AuthContextType['createTechnicianBySupervisor'] = async (name, email, pass, team, position) => {
+    if (user?.role !== 'supervisor') throw new AppError('Apenas supervisores podem criar colaboradores.');
+    const policyError = validatePassword(pass);
+    if (policyError) throw new AppError(policyError);
+
     if (isFirebaseMock) {
-      const usersRaw = localStorage.getItem('feed_track_mock_users');
-      const users: User[] = usersRaw ? JSON.parse(usersRaw) : [];
-      if (users.some(u => u.email.toLowerCase() === email.toLowerCase())) {
-        throw new Error("Este e-mail já está cadastrado.");
+      const users = readMockUsers();
+      if (users.some((u) => u.email.toLowerCase() === email.trim().toLowerCase())) {
+        throw new AppError('Este e-mail já está cadastrado.');
       }
-      const uid = 'mock_user_' + Date.now();
-      const newTech: User = {
-        uid,
-        name,
-        email,
-        role: 'technician',
-        team,
-        position,
-        active: true,
-        createdAt: nowTimestamp() as any,
-        badges: [],
-        structuredPDI: []
-      };
-      users.push(newTech);
-      localStorage.setItem('feed_track_mock_users', JSON.stringify(users));
-      await setMockCredential(uid, pass);
+      const tech = newProfile(newId('mock_user'), name, email, team, position);
+      localStorage.setItem(MOCK_USERS_KEY, JSON.stringify([...users, tech]));
+      await setMockCredential(tech.uid, pass);
       return;
     }
 
-    // Create the Firebase Auth account on a SECONDARY app instance so the
-    // supervisor's own session (on the default `auth` instance) is never
-    // signed out or replaced by the new technician's session.
-    const secondaryApp = initializeApp(firebaseConfig, `secondary-${Date.now()}`);
+    // Conta criada em uma instância SECUNDÁRIA para não derrubar a sessão do supervisor.
+    const secondaryApp = initializeApp(firebaseConfig, `secondary-${newId('app')}`);
     const secondaryAuth = getAuth(secondaryApp);
     try {
-      const credential = await createUserWithEmailAndPassword(secondaryAuth, email, pass);
-      const newTech: User = {
-        uid: credential.user.uid,
-        name,
-        email,
-        role: 'technician',
-        team,
-        position,
-        active: true,
-        createdAt: Timestamp.now(),
-        badges: [],
-        structuredPDI: []
-      };
-      await userService.createUser(newTech);
+      const credential = await createUserWithEmailAndPassword(secondaryAuth, email.trim(), pass);
+      try {
+        await userService.createUser(newProfile(credential.user.uid, name, email, team, position));
+      } catch (err) {
+        await credential.user.delete().catch(() => undefined);
+        throw err;
+      }
+      sendEmailVerification(credential.user).catch(() => undefined);
+    } catch (err) {
+      throw err instanceof AppError ? err : new AppError(friendlyError(err, 'Não foi possível criar o colaborador.'));
     } finally {
-      await signOut(secondaryAuth).catch(() => {});
-      await deleteApp(secondaryApp).catch(() => {});
+      await signOut(secondaryAuth).catch(() => undefined);
+      await deleteApp(secondaryApp).catch(() => undefined);
     }
+    // O colaborador define a própria senha no primeiro acesso (a do supervisor é provisória).
+    await sendPasswordResetEmail(auth, email.trim()).catch(() => undefined);
   };
 
   const sendPasswordReset = async (email: string): Promise<void> => {
-    if (isFirebaseMock) {
-      const usersRaw = localStorage.getItem('feed_track_mock_users');
-      const users: User[] = usersRaw ? JSON.parse(usersRaw) : [];
-      const found = users.some(u => u.email.toLowerCase() === email.toLowerCase());
-      if (!found) {
-        throw new Error("E-mail não cadastrado no sistema.");
-      }
-      return;
+    // Resposta sempre igual: não revela se o e-mail está cadastrado.
+    if (isFirebaseMock) return;
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === 'auth/user-not-found') return;
+      throw new AppError(friendlyError(err, 'Erro ao enviar e-mail de recuperação.'));
     }
-    await sendPasswordResetEmail(auth, email);
   };
 
   return createElement(
     AuthContext.Provider,
-    { value: { user, loading, login, register, logout, createTechnicianBySupervisor, sendPasswordReset } },
+    { value: { user, loading, emailVerified, login, register, logout, createTechnicianBySupervisor, sendPasswordReset } },
     children
   );
 }
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 }

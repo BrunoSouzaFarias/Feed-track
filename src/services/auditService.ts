@@ -1,141 +1,133 @@
-import { collection, doc, setDoc, getDocs, query, orderBy } from 'firebase/firestore';
-import { db, Timestamp } from '../firebase';
+import { collection, doc, setDoc, getDoc, getDocs, query, orderBy, where, serverTimestamp } from 'firebase/firestore';
+import { db } from '../firebase';
 import type { AuditLog } from '../types';
-
-const isFirebaseMock = !import.meta.env.VITE_FIREBASE_API_KEY || 
-  import.meta.env.VITE_FIREBASE_API_KEY.includes('mock') || 
-  import.meta.env.VITE_FIREBASE_API_KEY.includes('dummy');
+import { isFirebaseMock } from './env';
+import { newId } from './ids';
+import { sha256Hex, signHash } from './signatureService';
+import { offlineSyncService } from './offlineSyncService';
+import { getActorId } from './actor';
+import { scope } from './scope';
+import { AppError } from './errors';
 
 const MOCK_AUDIT_LOGS_KEY = 'feed_track_mock_audit_logs';
 
-// Helper to generate SHA-256 using Web Crypto API
-export async function generateSHA256(message: string): Promise<string> {
+export { sha256Hex as generateSHA256 };
+
+function readMockLogs(): AuditLog[] {
   try {
-    const msgBuffer = new TextEncoder().encode(message);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  } catch (error) {
-    // Fallback simple hash string if Web Crypto is unavailable
-    let hash = 0;
-    for (let i = 0; i < message.length; i++) {
-      const char = message.charCodeAt(i);
-      hash = (hash << 5) - hash + char;
-      hash = hash & hash;
-    }
-    return 'fallback_sha256_' + Math.abs(hash).toString(16) + '00000000';
+    const raw = localStorage.getItem(MOCK_AUDIT_LOGS_KEY);
+    return raw ? (JSON.parse(raw) as AuditLog[]) : [];
+  } catch {
+    return [];
   }
 }
 
-// Helper to simulate a digital signature (private/public key signature)
-export function simulateSignature(messageHash: string, userId: string): { signature: string; publicKey: string } {
-  const mockPrivateKey = `PRIV_KEY_${userId.toUpperCase()}_SECURE_KEY`;
-  const mockPublicKey = `MOCK_RSA_PUB_KEY_${userId.toUpperCase()}_FEED_TRACK_AUDIT_TRAIL_VALID`;
-  
-  // Create a simulated signature hex based on hash and private key
-  let hashVal = 0;
-  const input = `${messageHash}:${mockPrivateKey}`;
-  for (let i = 0; i < input.length; i++) {
-    const char = input.charCodeAt(i);
-    hashVal = (hashVal << 5) - hashVal + char;
-    hashVal = hashVal & hashVal;
+/**
+ * Âncora de chaves: a PRIMEIRA chave pública usada por um usuário é registrada
+ * em signingKeys/{uid} (imutável; as regras só deixam criar uma vez). Depois,
+ * qualquer assinatura com outra chave é recusada — impede forjar assinatura
+ * "em nome" de alguém com um par de chaves novo. Troca de dispositivo exige
+ * que um supervisor apague o registro (reset).
+ */
+async function ensureKeyAnchored(signerId: string, publicKey: string): Promise<void> {
+  const ref = doc(db, 'signingKeys', signerId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    await setDoc(ref, { uid: signerId, publicKey, createdAt: serverTimestamp() });
+    return;
   }
-  const signature = `SIG_RSA_SHA256_${Math.abs(hashVal).toString(16).toUpperCase()}_${messageHash.slice(0, 12)}`;
-  
-  return { signature, publicKey: mockPublicKey };
+  if (snap.data().publicKey !== publicKey) {
+    throw new AppError('Este dispositivo não possui a chave de assinatura registrada para sua conta. Peça ao supervisor para redefinir sua chave.');
+  }
 }
 
 export const auditService = {
-  getMockLogs(): AuditLog[] {
-    const logs = localStorage.getItem(MOCK_AUDIT_LOGS_KEY);
-    return logs ? JSON.parse(logs) : [];
-  },
-
-  saveMockLogs(logs: AuditLog[]) {
-    localStorage.setItem(MOCK_AUDIT_LOGS_KEY, JSON.stringify(logs));
-  },
-
   async registerLog(
-    eventType: 'feedback_signature' | 'pdi_goal_completion',
+    eventType: AuditLog['eventType'],
     entityId: string,
     technicianId: string,
     technicianName: string,
-    payload: Record<string, any>
+    team: AuditLog['team'],
+    payload: Record<string, unknown>
   ): Promise<AuditLog> {
     const timestamp = new Date().toISOString();
-    const payloadString = JSON.stringify(payload);
-    
-    // 1. Generate SHA-256 hash of the payload and event details
-    const hash = await generateSHA256(`${eventType}:${entityId}:${technicianId}:${timestamp}:${payloadString}`);
-    
-    // 2. Simulate Digital Signature with Private/Public Key pair
-    const { signature, publicKey } = simulateSignature(hash, technicianId);
-    
-    // Create Audit Log
+    const hash = await sha256Hex(
+      `${eventType}:${entityId}:${technicianId}:${timestamp}:${JSON.stringify(payload)}`
+    );
+    // Quem assina é QUEM ESTÁ LOGADO (técnico na assinatura de feedback; técnico ou
+    // supervisor na conclusão de meta) — não necessariamente o titular do evento.
+    const signerId = getActorId() ?? technicianId;
+    // Assinatura ECDSA real; falha (em vez de "fingir") se não for possível assinar.
+    const { signature, publicKey } = await signHash(hash, signerId);
+
     const logEntry: AuditLog = {
-      id: `audit_${Math.random().toString(36).substring(2, 11)}`,
+      id: newId('audit'),
       timestamp,
       eventType,
       entityId,
       technicianId,
       technicianName,
-      details: eventType === 'feedback_signature' 
+      team,
+      details: eventType === 'feedback_signature'
         ? `Feedback assinado digitalmente por ${technicianName}.`
-        : `Meta do PDI concluída por ${technicianName}.`,
+        : eventType === 'home_office_ack'
+          ? `Ciência da avaliação de home office por ${technicianName}.`
+          : `Meta do PDI concluída por ${technicianName}.`,
       hash,
       signature,
-      publicKey
+      publicKey,
+      signerId,
     };
 
     if (isFirebaseMock) {
-      const logs = this.getMockLogs();
-      logs.unshift(logEntry); // Add newest first
-      this.saveMockLogs(logs);
+      const logs = readMockLogs();
+      logs.unshift(logEntry);
+      localStorage.setItem(MOCK_AUDIT_LOGS_KEY, JSON.stringify(logs));
       return logEntry;
     }
 
-    try {
-      await setDoc(doc(db, 'auditLogs', logEntry.id), {
-        ...logEntry,
-        createdAt: Timestamp.now()
-      });
-      return logEntry;
-    } catch (error) {
-      console.error("Firebase error registering audit log, falling back to mock:", error);
-      const logs = this.getMockLogs();
-      logs.unshift(logEntry);
-      this.saveMockLogs(logs);
-      return logEntry;
-    }
+    // Sem fallback silencioso para localStorage: se o servidor rejeitar, a
+    // falha PROPAGA — um log de auditoria que só existe no navegador não
+    // serve de evidência. `createdAt` vem do SERVIDOR (as regras exigem
+    // `createdAt == request.time`).
+    await ensureKeyAnchored(signerId, publicKey);
+    await offlineSyncService.run(
+      () => setDoc(doc(db, 'auditLogs', logEntry.id), { ...logEntry, createdAt: serverTimestamp() }),
+      'assinatura'
+    );
+    return logEntry;
   },
 
-  async getLogs(): Promise<AuditLog[]> {
+  /** Chaves públicas ancoradas (uid → JWK). Supervisor lê todas. Vazio em modo mock. */
+  async getAnchoredKeys(): Promise<Record<string, string>> {
+    if (isFirebaseMock) return {};
+    const snap = await getDocs(collection(db, 'signingKeys'));
+    return Object.fromEntries(snap.docs.map((d) => [d.id, d.data().publicKey as string]));
+  },
+
+  /** Supervisor: todos os logs. Técnico: informe `technicianId` (as regras exigem o filtro). */
+  async getLogs(technicianId?: string): Promise<AuditLog[]> {
     if (isFirebaseMock) {
-      return this.getMockLogs();
+      const logs = readMockLogs().filter((l) => scope.allows(l.team));
+      return technicianId ? logs.filter((l) => l.technicianId === technicianId) : logs;
     }
-    try {
-      const q = query(collection(db, 'auditLogs'), orderBy('createdAt', 'desc'));
-      const querySnapshot = await getDocs(q);
-      const list: AuditLog[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        list.push({
-          id: data.id,
-          timestamp: data.timestamp,
-          eventType: data.eventType,
-          entityId: data.entityId,
-          technicianId: data.technicianId,
-          technicianName: data.technicianName,
-          details: data.details,
-          hash: data.hash,
-          signature: data.signature,
-          publicKey: data.publicKey
-        });
-      });
-      return list;
-    } catch (error) {
-      console.error("Firebase error listing audit logs, falling back to mock:", error);
-      return this.getMockLogs();
-    }
-  }
+    const base = collection(db, 'auditLogs');
+    const managed = scope.get();
+    const q = technicianId
+      ? query(base, where('technicianId', '==', technicianId), orderBy('createdAt', 'desc'))
+      : managed
+        ? query(base, where('team', '==', managed), orderBy('createdAt', 'desc'))
+        : query(base, orderBy('createdAt', 'desc'));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: data.id, timestamp: data.timestamp, eventType: data.eventType,
+        entityId: data.entityId, technicianId: data.technicianId,
+        technicianName: data.technicianName, team: data.team, details: data.details,
+        hash: data.hash, signature: data.signature, publicKey: data.publicKey,
+        signerId: data.signerId ?? data.technicianId,
+      } satisfies AuditLog;
+    });
+  },
 };

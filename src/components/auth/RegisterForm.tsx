@@ -3,7 +3,12 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Mail, Lock, User, Briefcase, Users, Loader2, ArrowLeft } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAuth } from '../../hooks/useAuth';
+import { sessionHint } from '../../services/sessionHint';
+import { friendlyError } from '../../services/errors';
+import { validatePassword } from '../../services/passwordPolicy';
 import { useSmoothScroll } from '../../hooks/useSmoothScroll';
+import { useDataEffect } from '../../hooks/useDataEffect';
+import { signupService } from '../../services/signupService';
 import toast from 'react-hot-toast';
 import Magnetic from '../shared/Magnetic';
 import Tilt3D from '../shared/Tilt3D';
@@ -15,6 +20,9 @@ export default function RegisterForm() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [team, setTeam] = useState<'back-office' | 'teleservice'>('back-office');
   const [position, setPosition] = useState('');
+  // null = verificando. Falso = cadastro público desativado por um supervisor (aplicado também nas regras do servidor).
+  const [signupOpen, setSignupOpen] = useState<boolean | null>(null);
+  useDataEffect(() => signupService.isOpen(), setSignupOpen, () => setSignupOpen(true), []);
   const [loading, setLoading] = useState(false);
   const { user, loading: authLoading, register } = useAuth();
   const navigate = useNavigate();
@@ -26,7 +34,7 @@ export default function RegisterForm() {
     }
   }, [user, navigate]);
 
-  if (authLoading && (sessionStorage.getItem('feed_track_logged_in') === 'true' || localStorage.getItem('feed_track_logged_in') === 'true')) {
+  if (authLoading && (sessionHint.get())) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950 transition-colors duration-200">
         <div className="flex flex-col items-center gap-3">
@@ -43,6 +51,10 @@ export default function RegisterForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (signupOpen === false) {
+      toast.error('O cadastro público está desativado. Peça a um supervisor para criar sua conta.');
+      return;
+    }
     if (!name || !email || !password || !confirmPassword || !position) {
       toast.error('Preencha todos os campos.');
       return;
@@ -53,8 +65,9 @@ export default function RegisterForm() {
       return;
     }
 
-    if (password.length < 6) {
-      toast.error('A senha deve ter no mínimo 6 caracteres.');
+    const policyError = validatePassword(password);
+    if (policyError) {
+      toast.error(policyError);
       return;
     }
 
@@ -63,11 +76,11 @@ export default function RegisterForm() {
       // Self-registration is always as technician — supervisor accounts can only
       // be created by an existing supervisor (see useAuth.createTechnicianBySupervisor)
       // or promoted directly in Firestore, never chosen by the registrant.
-      await register(name, email, password, team, position, 'technician');
+      await register(name, email, password, team, position);
       toast.success('Cadastro realizado com sucesso!');
       navigate('/technician');
-    } catch (error: any) {
-      toast.error(error.message || 'Erro ao realizar cadastro.');
+    } catch (error) {
+      toast.error(friendlyError(error, 'Erro ao realizar cadastro.'));
     } finally {
       setLoading(false);
     }
@@ -162,6 +175,12 @@ export default function RegisterForm() {
             variants={itemVariants}
           >
           
+          {signupOpen === false && (
+            <div role="alert" className="mb-4 p-3 rounded-lg border border-amber-300/50 bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-300 text-xs font-semibold">
+              O cadastro público está desativado. Peça a um supervisor para criar sua conta.
+            </div>
+          )}
+
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <motion.div variants={itemVariants}>
@@ -212,7 +231,7 @@ export default function RegisterForm() {
                   <select
                     id="register-team"
                     value={team}
-                    onChange={(e) => setTeam(e.target.value as any)}
+                    onChange={(e) => setTeam(e.target.value as 'back-office' | 'teleservice')}
                     className="w-full pl-10 pr-8 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-950/40 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-[#0bbb81] transition-all text-xs cursor-pointer appearance-none"
                   >
                     <option value="back-office">Back-office</option>
@@ -256,7 +275,7 @@ export default function RegisterForm() {
                   id="register-password"
                   type="password"
                   autoComplete="new-password"
-                  placeholder="Mínimo 6 caracteres"
+                  placeholder="Mínimo 10 caracteres, com letras e números"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-950/40 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#0bbb81] transition-all text-xs"
@@ -287,7 +306,7 @@ export default function RegisterForm() {
             <Magnetic strength={0.12} cursorText="Cadastrar" className="w-full block">
               <motion.button
                 type="submit"
-                disabled={loading}
+                disabled={loading || signupOpen === false}
                 className="w-full py-2.5 mt-2 bg-[#0bbb81] hover:bg-[#0bbb81]/90 text-white rounded-lg font-bold transition-all flex items-center justify-center gap-2 text-xs disabled:opacity-50 cursor-pointer shadow-md"
                 variants={itemVariants}
                 whileHover={{ scale: 1.02, y: -1 }}

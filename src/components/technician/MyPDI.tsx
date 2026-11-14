@@ -1,9 +1,11 @@
 import { useMemo } from 'react';
 import { Target, Calendar } from 'lucide-react';
 import type { User, PDIGoal } from '../../types';
+import { formatDate } from '../../services/dateUtils';
 import { userService } from '../../services/userService';
 import confetti from 'canvas-confetti';
 import toast from 'react-hot-toast';
+import { friendlyError } from '../../services/errors';
 
 interface MyPDIProps {
   userProfile: User;
@@ -12,7 +14,7 @@ interface MyPDIProps {
 
 export default function MyPDI({ userProfile, onRefresh }: MyPDIProps) {
   
-  const goals = userProfile.structuredPDI || [];
+  const goals = useMemo(() => userProfile.structuredPDI || [], [userProfile.structuredPDI]);
 
   const progressStats = useMemo(() => {
     if (goals.length === 0) {
@@ -52,7 +54,7 @@ export default function MyPDI({ userProfile, onRefresh }: MyPDIProps) {
       
       onRefresh();
     } catch (err) {
-      toast.error('Erro ao atualizar status do objetivo.');
+      toast.error(friendlyError(err, 'Erro ao atualizar status do objetivo.'));
     }
   };
 
@@ -110,7 +112,7 @@ export default function MyPDI({ userProfile, onRefresh }: MyPDIProps) {
 
                   <div className="border-t border-zinc-100 dark:border-zinc-800/80 pt-3 flex items-center justify-between gap-3 text-xs">
                     <span className="flex items-center gap-1 text-zinc-400 dark:text-zinc-500">
-                      <Calendar className="w-3.5 h-3.5" /> Prazo: {goal.deadline}
+                      <Calendar className="w-3.5 h-3.5" /> Prazo: {formatDate(goal.deadline)}
                     </span>
                     <button
                       onClick={() => handleUpdateStatus(goal)}
