@@ -44,6 +44,11 @@ function writeList<T>(key: string, list: T[]) {
   }
 }
 
+async function isWeekClosed(weekId: string, technicianId: string): Promise<boolean> {
+  if (isFirebaseMock) return readList<HomeOfficeWeek>(K.weeks).some((w) => w.id === weekDocId(weekId, technicianId));
+  return (await getDoc(doc(db, 'homeOfficeWeeks', weekDocId(weekId, technicianId)))).exists();
+}
+
 function requireActor(): string {
   const uid = getActorId();
   if (!uid) throw new AppError('Sua sessão expirou. Entre novamente.');
@@ -173,6 +178,7 @@ export const homeOfficeService = {
       writeList(K.points, [...readList<HomeOfficePoint>(K.points), point]);
       return point;
     }
+    if (await isWeekClosed(weekId, technician.uid)) throw new AppError('Esta semana já foi fechada para este colaborador.');
     // Evidência ANTES do lançamento: um ponto com hasEvidence nunca fica sem o print.
     await offlineSyncService.run(async () => {
       if (evidenceDoc) await setDoc(doc(db, 'homeOfficeEvidence', point.id), evidenceDoc);
@@ -194,6 +200,7 @@ export const homeOfficeService = {
         p.id === point.id ? { ...p, status: 'cancelled' as const, cancelReason, cancelledBy: uid, cancelledAt: Timestamp.now() } : p));
       return;
     }
+    if (await isWeekClosed(point.weekId, point.technicianId)) throw new AppError('A semana já foi fechada; não é possível cancelar.');
     await offlineSyncService.run(() => updateDoc(doc(db, 'homeOfficePoints', point.id), {
       status: 'cancelled', cancelReason, cancelledBy: uid, cancelledAt: serverTimestamp(),
     }), 'cancelamento');

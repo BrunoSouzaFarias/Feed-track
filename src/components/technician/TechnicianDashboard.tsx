@@ -1,7 +1,8 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { motion, useTransform, AnimatePresence } from 'motion/react';
 import { useMouseParallax } from '../../hooks/useMouseParallax';
-import { BookOpen, Target, Award, PlusCircle, BarChart3, Milestone } from 'lucide-react';
+import { BookOpen, Target, Award, PlusCircle, BarChart3, Milestone, Home } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { useDataEffect } from '../../hooks/useDataEffect';
 import { useAuth } from '../../hooks/useAuth';
 import { useFeedbacks } from '../../hooks/useFeedbacks';
@@ -10,6 +11,7 @@ import type { User, SelfAssessment as SelfAssessmentRecord } from '../../types';
 import Header from '../shared/Header';
 import MyFeedbacks from './MyFeedbacks';
 import MyPDI from './MyPDI';
+import MyHomeOffice from './MyHomeOffice';
 import BadgesPanel from './BadgesPanel';
 import CareerTimeline from './CareerTimeline';
 import SelfAssessment from './SelfAssessment';
@@ -40,7 +42,15 @@ export default function TechnicianDashboard() {
   
   // Dashboard states
   const [profile, setProfile] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'feedbacks' | 'pdi' | 'radar' | 'badges' | 'timeline'>('feedbacks');
+  type TechTab = 'feedbacks' | 'pdi' | 'radar' | 'badges' | 'timeline' | 'home-office';
+  const TECH_TABS: readonly TechTab[] = ['feedbacks', 'pdi', 'radar', 'badges', 'timeline', 'home-office'];
+  // Link direto: /technician?tab=home-office (só ids válidos; qualquer outro valor cai em "feedbacks").
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<TechTab>(() => {
+    const requested = searchParams.get('tab');
+    return TECH_TABS.find((t) => t === requested) ?? 'feedbacks';
+  });
   const [isAssessmentOpen, setIsAssessmentOpen] = useState(false);
   const [hasAssessments, setHasAssessments] = useState(false);
   const [latestSelfAssessment, setLatestSelfAssessment] = useState<SelfAssessmentRecord['scores'] | null>(null);
@@ -106,6 +116,11 @@ export default function TechnicianDashboard() {
     (err) => { toast.error(friendlyError(err, 'Erro ao carregar dados do perfil.')); setIsLoading(false); },
     [user]
   );
+
+  // Mantém a aba ativa visível na barra rolável (ex.: link direto para "Home Office" no celular).
+  useEffect(() => {
+    tabsRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }, [activeTab]);
 
   // Compute supervisor scores based on feedbacks
   const supervisorScores = useMemo(() => {
@@ -275,12 +290,13 @@ export default function TechnicianDashboard() {
         )}
 
         {/* Tab options row */}
-        <div className="flex border-b border-zinc-200 dark:border-zinc-800 mb-8 overflow-x-auto gap-2 select-none scrollbar-none scroll-smooth snap-x snap-mandatory md:snap-none" role="tablist" aria-label="Abas do painel">
+        <div ref={tabsRef} className="flex border-b border-zinc-200 dark:border-zinc-800 mb-8 overflow-x-auto gap-2 select-none scrollbar-none scroll-smooth snap-x snap-mandatory md:snap-none" role="tablist" aria-label="Abas do painel">
           {[
             { id: 'feedbacks', label: 'Meus Feedbacks', icon: BookOpen },
             { id: 'pdi', label: 'Meu Plano de Desenvolvimento (PDI)', icon: Target },
             { id: 'radar', label: 'Radar de Competências', icon: BarChart3 },
             { id: 'badges', label: 'Minhas Conquistas', icon: Award },
+            { id: 'home-office', label: 'Home Office', icon: Home },
             { id: 'timeline', label: 'Jornada & Linha do Tempo', icon: Milestone }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -370,6 +386,8 @@ export default function TechnicianDashboard() {
               onRefresh={loadProfile}
             />
           )}
+
+          {activeTab === 'home-office' && profile && <MyHomeOffice userProfile={profile} />}
 
           {activeTab === 'timeline' && profile && (
             <CareerTimeline

@@ -5,6 +5,7 @@ Gestão de feedbacks 1:1, PDI (plano de desenvolvimento individual), autoavalia�
 ## Perfis
 - **Supervisor**: equipe, feedbacks, PDIs, clima, exportações (PDF/CSV), compliance, 9-Box e insights.
 - **Técnico**: seus feedbacks (leitura/assinatura), PDI, radar, badges, linha do tempo e autoavaliação.
+- **Home Office** (ambos): o supervisor lança ocorrências semanais com print e motivo e fecha a semana; o colaborador vê as pontuações com evidências e assina a ciência.
 
 O cadastro público (`/register`) **sempre** cria técnico. Supervisores são criados por outro supervisor (aba “Equipe”) ou promovidos direto no Firestore (veja “Primeiro supervisor”).
 

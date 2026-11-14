@@ -47,6 +47,15 @@ Sem `managedTeam` o supervisor continua gerenciando todas as equipes.
 ## Cadastro público
 Controlado em *Configurações → Cadastro público* (supervisor sem escopo de equipe). O estado fica em `config/signup` e é aplicado pelas regras do Firestore. Sem o documento, o cadastro está aberto.
 
+## Home Office (avaliação semanal)
+Aba **Home Office** do supervisor (lançar ocorrências com print, fechar a semana, ⚙ pesos e nota de corte) e aba **Home Office** do colaborador (ver, assinar ciência). Link direto para o colaborador: `/technician?tab=home-office` (botão *Copiar link*).
+
+**Antes de publicar o app novo, publique as regras e os índices** (o app depende deles):
+```bash
+npx firebase deploy --only firestore:rules,firestore:indexes --project feed-track
+```
+Os índices novos (`homeOfficePoints`, `homeOfficeWeeks`) levam alguns minutos para ficarem prontos; até lá a tela pode mostrar erro de consulta. Só um supervisor **sem** escopo de equipe altera pesos e nota de corte (padrão: 10 pontos por ocorrência, corte 70).
+
 ## Primeiro supervisor
 1. Crie a conta em `/register` (nasce como técnico).
 2. No console do Firestore, altere `users/{uid}.role` para `supervisor`.
