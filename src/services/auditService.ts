@@ -70,7 +70,9 @@ export const auditService = {
       team,
       details: eventType === 'feedback_signature'
         ? `Feedback assinado digitalmente por ${technicianName}.`
-        : `Meta do PDI concluída por ${technicianName}.`,
+        : eventType === 'home_office_ack'
+          ? `Ciência da avaliação de home office por ${technicianName}.`
+          : `Meta do PDI concluída por ${technicianName}.`,
       hash,
       signature,
       publicKey,
