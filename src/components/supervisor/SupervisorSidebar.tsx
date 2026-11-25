@@ -1,9 +1,33 @@
 import { motion } from 'motion/react';
-import { Home, Users, FileBarChart, FileText, Target, FileSpreadsheet, Shield, Sparkles, LogOut } from 'lucide-react';
+import { CalendarCheck, FileBarChart, FileSpreadsheet, FileText, Grid3x3, Home, LayoutGrid, LogOut, Shield, Sparkles, Target, Users, type LucideIcon } from 'lucide-react';
 import Magnetic from '../shared/Magnetic';
 import BrandLogo from '../shared/BrandLogo';
 
-export type SupervisorTab = 'dashboard' | 'team' | 'feedbacks' | 'pdis' | 'climate' | 'export' | 'compliance' | '9box' | 'insights' | 'homeoffice';
+export type SupervisorTab = 'dashboard' | 'team' | 'feedbacks' | 'pdis' | 'climate' | 'export' | 'compliance' | '9box' | 'insights' | 'homeoffice' | 'today';
+
+interface NavItem { id: SupervisorTab; label: string; icon: LucideIcon }
+interface NavGroup { title: string; items: NavItem[] }
+
+/** Menu agrupado pelo ritmo de trabalho: o que fazer hoje, pessoas, a semana, análises. */
+const NAV_GROUPS: NavGroup[] = [
+  { title: 'Hoje', items: [
+    { id: 'today', label: 'Central de ações', icon: Home },
+    { id: 'dashboard', label: 'Visão geral', icon: LayoutGrid },
+  ] },
+  { title: 'Pessoas', items: [
+    { id: 'team', label: 'Equipe', icon: Users },
+    { id: 'feedbacks', label: 'Feedbacks', icon: FileText },
+    { id: 'pdis', label: 'Metas (PDI)', icon: Target },
+  ] },
+  { title: 'Semana', items: [{ id: 'homeoffice', label: 'Home Office', icon: CalendarCheck }] },
+  { title: 'Análises', items: [
+    { id: '9box', label: 'Matriz 9-Box', icon: Grid3x3 },
+    { id: 'insights', label: 'Insights', icon: Sparkles },
+    { id: 'climate', label: 'Relatórios', icon: FileBarChart },
+    { id: 'export', label: 'Exportar lote', icon: FileSpreadsheet },
+  ] },
+  { title: 'Conformidade', items: [{ id: 'compliance', label: 'Auditoria', icon: Shield }] },
+];
 
 interface SupervisorSidebarProps {
   activeTab: SupervisorTab;
@@ -20,63 +44,39 @@ export default function SupervisorSidebar({ activeTab, onTabChange, onNewFeedbac
           <BrandLogo />
 
           {/* Menu Items */}
-          <nav className="flex flex-col gap-1.5 text-left">
-            {[
-              { id: 'dashboard', label: 'Dashboard', icon: () => (
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <rect x="3" y="3" width="7" height="9" />
-                  <rect x="14" y="3" width="7" height="5" />
-                  <rect x="14" y="12" width="7" height="9" />
-                  <rect x="3" y="16" width="7" height="5" />
-                </svg>
-              )},
-              { id: 'team', label: 'Equipe', icon: Users },
-              { id: 'feedbacks', label: 'Feedbacks', icon: FileText },
-              { id: 'pdis', label: 'Metas', icon: Target },
-              { id: '9box', label: 'Matriz 9-Box', icon: () => (
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <rect x="3" y="3" width="5" height="5" />
-                  <rect x="9.5" y="3" width="5" height="5" />
-                  <rect x="16" y="3" width="5" height="5" />
-                  <rect x="3" y="9.5" width="5" height="5" />
-                  <rect x="9.5" y="9.5" width="5" height="5" />
-                  <rect x="16" y="9.5" width="5" height="5" />
-                  <rect x="3" y="16" width="5" height="5" />
-                  <rect x="9.5" y="16" width="5" height="5" />
-                  <rect x="16" y="16" width="5" height="5" />
-                </svg>
-              )},
-              { id: 'homeoffice', label: 'Home Office', icon: Home },
-              { id: 'insights', label: 'Insights', icon: Sparkles },
-              { id: 'climate', label: 'Relatórios', icon: FileBarChart },
-              { id: 'export', label: 'Exportar Lote', icon: FileSpreadsheet },
-              { id: 'compliance', label: 'Auditoria', icon: Shield }
-            ].map(item => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => onTabChange(item.id as SupervisorTab)}
-                  className={`relative flex items-center gap-3 px-4 py-2.5 rounded font-bold text-xs transition-all cursor-pointer text-left overflow-hidden ${
-                    isActive
-                      ? 'text-[#006c49] dark:text-[#4bdfa1]'
-                      : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/20'
-                  }`}
-                  aria-current={isActive ? 'page' : undefined}
-                >
-                  {isActive && (
-                    <motion.div
-                      layoutId="activeSidebarTab"
-                      className="absolute inset-0 bg-[#006c49]/5 dark:bg-[#4bdfa1]/5 border-l-2 border-[#006c49] dark:border-[#4bdfa1] rounded pointer-events-none will-change-transform-opacity"
-                      transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-                    />
-                  )}
-                  <Icon className="w-4 h-4 shrink-0 z-10" />
-                  <span className="z-10">{item.label}</span>
-                </button>
-              );
-            })}
+          <nav aria-label="Principal" className="flex flex-col gap-5 text-left">
+            {NAV_GROUPS.map((group) => (
+              <div key={group.title} className="flex flex-col gap-1">
+                <span className="px-4 pb-1 text-[10px] font-extrabold uppercase tracking-[0.12em] text-zinc-400 dark:text-zinc-500">{group.title}</span>
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => onTabChange(item.id)}
+                      className={`relative flex items-center gap-3 px-4 py-2.5 rounded font-bold text-xs transition-all cursor-pointer text-left overflow-hidden ${
+                        isActive
+                          ? 'text-[#006c49] dark:text-[#4bdfa1]'
+                          : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/20'
+                      }`}
+                      aria-current={isActive ? 'page' : undefined}
+                    >
+                      {isActive && (
+                        <motion.div
+                          layoutId="activeSidebarTab"
+                          className="absolute inset-0 bg-[#006c49]/5 dark:bg-[#4bdfa1]/5 border-l-2 border-[#006c49] dark:border-[#4bdfa1] rounded pointer-events-none will-change-transform-opacity"
+                          transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+                        />
+                      )}
+                      <Icon className="w-4 h-4 shrink-0 z-10" />
+                      <span className="z-10">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </nav>
 
           {/* Create Feedback Button in Sidebar */}

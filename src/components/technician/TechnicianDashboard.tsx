@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { motion, useTransform, AnimatePresence } from 'motion/react';
 import { useMouseParallax } from '../../hooks/useMouseParallax';
-import { BookOpen, Target, Award, PlusCircle, BarChart3, Milestone, Home } from 'lucide-react';
+import { BookOpen, Target, Award, PlusCircle, BarChart3, Milestone, Home, Sun, CalendarCheck } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useDataEffect } from '../../hooks/useDataEffect';
 import { useAuth } from '../../hooks/useAuth';
@@ -12,6 +12,7 @@ import Header from '../shared/Header';
 import MyFeedbacks from './MyFeedbacks';
 import MyPDI from './MyPDI';
 import MyHomeOffice from './MyHomeOffice';
+import MyToday, { type TechnicianTab } from './MyToday';
 import BadgesPanel from './BadgesPanel';
 import CareerTimeline from './CareerTimeline';
 import SelfAssessment from './SelfAssessment';
@@ -42,14 +43,13 @@ export default function TechnicianDashboard() {
   
   // Dashboard states
   const [profile, setProfile] = useState<User | null>(null);
-  type TechTab = 'feedbacks' | 'pdi' | 'radar' | 'badges' | 'timeline' | 'home-office';
-  const TECH_TABS: readonly TechTab[] = ['feedbacks', 'pdi', 'radar', 'badges', 'timeline', 'home-office'];
+  const TECH_TABS: readonly TechnicianTab[] = ['today', 'feedbacks', 'pdi', 'radar', 'badges', 'timeline', 'home-office'];
   // Link direto: /technician?tab=home-office (só ids válidos; qualquer outro valor cai em "feedbacks").
   const tabsRef = useRef<HTMLDivElement>(null);
   const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<TechTab>(() => {
+  const [activeTab, setActiveTab] = useState<TechnicianTab>(() => {
     const requested = searchParams.get('tab');
-    return TECH_TABS.find((t) => t === requested) ?? 'feedbacks';
+    return TECH_TABS.find((t) => t === requested) ?? 'today';
   });
   const [isAssessmentOpen, setIsAssessmentOpen] = useState(false);
   const [hasAssessments, setHasAssessments] = useState(false);
@@ -169,7 +169,7 @@ export default function TechnicianDashboard() {
 
       <Header />
 
-      <main id="conteudo" tabIndex={-1} className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left relative z-10">
+      <main id="conteudo" tabIndex={-1} className="pb-28 md:pb-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left relative z-10">
         
         {/* Welcome block */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
@@ -208,14 +208,14 @@ export default function TechnicianDashboard() {
 
         {/* Dashboard summary grid */}
         {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+          <div className={`${activeTab === 'today' ? 'hidden sm:grid' : 'grid'} grid-cols-1 sm:grid-cols-3 gap-4 mb-8`}>
             <Skeleton variant="card" />
             <Skeleton variant="card" />
             <Skeleton variant="card" />
           </div>
         ) : (
           <motion.div
-            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-8"
+            className={`${activeTab === 'today' ? 'hidden sm:grid' : 'grid'} grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-8`}
             variants={containerVariants}
             initial="hidden"
             animate="visible"
@@ -290,8 +290,9 @@ export default function TechnicianDashboard() {
         )}
 
         {/* Tab options row */}
-        <div ref={tabsRef} className="flex border-b border-zinc-200 dark:border-zinc-800 mb-8 overflow-x-auto gap-2 select-none scrollbar-none scroll-smooth snap-x snap-mandatory md:snap-none" role="tablist" aria-label="Abas do painel">
+        <div ref={tabsRef} className="hidden md:flex border-b border-zinc-200 dark:border-zinc-800 mb-8 overflow-x-auto gap-2 select-none scrollbar-none scroll-smooth snap-x snap-mandatory md:snap-none" role="tablist" aria-label="Abas do painel">
           {[
+            { id: 'today', label: 'Hoje', icon: Sun },
             { id: 'feedbacks', label: 'Meus Feedbacks', icon: BookOpen },
             { id: 'pdi', label: 'Meu Plano de Desenvolvimento (PDI)', icon: Target },
             { id: 'radar', label: 'Radar de Competências', icon: BarChart3 },
@@ -329,6 +330,10 @@ export default function TechnicianDashboard() {
         {/* Tab view containers */}
         <PageTransition keyId={activeTab}>
           <div>
+          {activeTab === 'today' && profile && (
+            <MyToday userProfile={profile} feedbacks={feedbacks} onGo={setActiveTab} onOpenAssessment={() => setIsAssessmentOpen(true)} />
+          )}
+
           {activeTab === 'feedbacks' && (
             <MyFeedbacks
               feedbacks={feedbacks}
@@ -399,6 +404,28 @@ export default function TechnicianDashboard() {
         </PageTransition>
 
       </main>
+
+      {/* Barra de abas (celular): as ações mais usadas ao alcance do polegar */}
+      <nav aria-label="Principal" className="md:hidden fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-[#16191d]/95 px-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur">
+        {([
+          { id: 'today', label: 'Hoje', icon: Sun },
+          { id: 'feedbacks', label: 'Feedbacks', icon: BookOpen },
+          { id: 'home-office', label: 'Semana', icon: CalendarCheck },
+          { id: 'pdi', label: 'Metas', icon: Target },
+          { id: 'badges', label: 'Conquistas', icon: Award },
+        ] as const).map(({ id, label, icon: Icon }) => {
+          const isActive = activeTab === id;
+          return (
+            <button
+              key={id} type="button" onClick={() => setActiveTab(id)} aria-current={isActive ? 'page' : undefined}
+              className={`flex min-h-[52px] flex-1 flex-col items-center justify-center gap-1 rounded-xl text-[11px] cursor-pointer ${isActive ? 'font-extrabold text-[#006c49] dark:text-[#4bdfa1]' : 'font-semibold text-zinc-500 dark:text-zinc-400'}`}
+            >
+              <Icon className="h-[22px] w-[22px]" strokeWidth={isActive ? 2.4 : 2} />
+              {label}
+            </button>
+          );
+        })}
+      </nav>
 
       {/* Self assessment modal overlay */}
       <AnimatePresence>

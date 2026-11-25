@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion, useTransform, AnimatePresence } from 'motion/react';
 import { useMouseParallax } from '../../hooks/useMouseParallax';
 import Avatar from '../shared/Avatar';
@@ -24,6 +24,9 @@ import SupervisorSidebar, { type SupervisorTab } from './SupervisorSidebar';
 import SettingsModal from './SettingsModal';
 import DashboardOverview from './DashboardOverview';
 import HomeOffice from './HomeOffice';
+import ActionCenter from './ActionCenter';
+import CommandPalette from './CommandPalette';
+import type { PaletteAction } from '../../services/commandPalette';
 import toast from 'react-hot-toast';
 import NotificationCenter from '../shared/NotificationCenter';
 import PageTransition from '../shared/PageTransition';
@@ -47,11 +50,13 @@ export default function SupervisorDashboard() {
   // Dashboard states
   const [technicians, setTechnicians] = useState<User[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [activeTab, setActiveTab] = useState<SupervisorTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<SupervisorTab>('today');
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const [feedbackModalTechId, setFeedbackModalTechId] = useState<string | undefined>(undefined);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  // Pessoa a destacar ao abrir o Home Office (vem da busca rápida ou da Central de ações).
+  const [focusTechId, setFocusTechId] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   
   const fetchTeamData = useCallback(async () => {
@@ -84,6 +89,32 @@ export default function SupervisorDashboard() {
     (err) => { toast.error(friendlyError(err, 'Erro ao carregar colaboradores.')); setIsLoading(false); },
     []
   );
+
+  const goTo = (tab: SupervisorTab, technicianId?: string) => {
+    setFocusTechId(technicianId);
+    setActiveTab(tab);
+  };
+  const openFeedbackFor = (technicianId?: string) => {
+    setFeedbackModalTechId(technicianId);
+    setIsFeedbackModalOpen(true);
+  };
+  const pickFromPalette = (action: PaletteAction) => {
+    setPaletteOpen(false);
+    if (action.type === 'new_feedback') openFeedbackFor(action.technicianId);
+    else goTo(action.tab, action.technicianId);
+  };
+
+  // Ctrl+K (ou Cmd+K) abre/fecha a busca rápida em qualquer aba.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   const handleExportAll = () => {
     if (!user) return;
@@ -139,20 +170,20 @@ export default function SupervisorDashboard() {
         
         {/* Top Header Bar */}
         <header className="h-16 border-b border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-[#1e2023]/70 backdrop-blur-md px-8 flex items-center justify-between z-10 shrink-0">
-          {/* Search bar */}
-          <div className="relative w-72">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          {/* Busca rápida (Ctrl+K) */}
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Buscar pessoa, feedback ou meta (Ctrl K)"
+            className="flex w-80 max-w-[40vw] items-center gap-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-3 py-2 text-left text-xs text-zinc-400 transition hover:border-zinc-300 dark:hover:border-zinc-600 cursor-pointer"
+          >
+            <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
               <circle cx="11" cy="11" r="8" />
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
-            <input
-              type="text"
-              placeholder="Pesquisar..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-1.5 rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-850 dark:text-zinc-100 placeholder-zinc-400 text-xs focus:outline-none focus:ring-1 focus:ring-[#006c49]"
-            />
-          </div>
+            <span className="flex-1 truncate">Buscar pessoa, feedback ou meta</span>
+            <kbd className="rounded-md border border-zinc-300 dark:border-zinc-600 px-1.5 py-0.5 text-[10px] font-bold text-zinc-500 dark:text-zinc-300">Ctrl K</kbd>
+          </button>
 
           {/* Right actions */}
           <div className="flex items-center gap-4">
@@ -216,13 +247,24 @@ export default function SupervisorDashboard() {
           
           <PageTransition keyId={activeTab}>
 
+          {activeTab === 'today' && (
+            <ActionCenter
+              user={user}
+              technicians={technicians}
+              feedbacks={feedbacks}
+              isLoading={isLoading}
+              onGo={goTo}
+              onNewFeedbackFor={openFeedbackFor}
+            />
+          )}
+
           {activeTab === 'dashboard' && (
             <DashboardOverview
               user={user}
               technicians={technicians}
               feedbacks={feedbacks}
               isLoading={isLoading}
-              searchTerm={searchTerm}
+              searchTerm=""
               onTabChange={setActiveTab}
               onNewFeedbackFor={(techId) => { setFeedbackModalTechId(techId); setIsFeedbackModalOpen(true); }}
             />
@@ -258,7 +300,7 @@ export default function SupervisorDashboard() {
             <Talent9Box technicians={technicians} />
           )}
 
-          {activeTab === 'homeoffice' && <HomeOffice technicians={technicians} />}
+          {activeTab === 'homeoffice' && <HomeOffice key={focusTechId ?? 'all'} technicians={technicians} initialTechId={focusTechId} />}
 
           {activeTab === 'insights' && (
             <ExecutiveInsights technicians={technicians} feedbacks={feedbacks} />
@@ -292,6 +334,10 @@ export default function SupervisorDashboard() {
           />
         )}
       </AnimatePresence>
+
+      {paletteOpen && (
+        <CommandPalette technicians={technicians} feedbacks={feedbacks} onClose={() => setPaletteOpen(false)} onPick={pickFromPalette} />
+      )}
 
       <SettingsModal open={isSettingsModalOpen} user={user} onClose={() => setIsSettingsModalOpen(false)} />
 

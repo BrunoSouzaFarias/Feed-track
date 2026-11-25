@@ -16,9 +16,12 @@ import HomeOfficeTeamList, { type HomeOfficeRow } from './HomeOfficeTeamList';
 import HomeOfficeEntryForm from './HomeOfficeEntryForm';
 import HomeOfficePointList from './HomeOfficePointList';
 import HomeOfficeConfigModal from './HomeOfficeConfigModal';
+import HomeOfficeStepper from './HomeOfficeStepper';
 
 interface HomeOfficeProps {
   technicians: User[];
+  /** Abre já com esta pessoa selecionada (ex.: vindo da busca rápida). */
+  initialTechId?: string;
 }
 
 interface Loaded {
@@ -30,11 +33,11 @@ interface Loaded {
 
 const TEAM_LABEL: Record<Team, string> = { teleservice: 'Teleatendimento', 'back-office': 'Back-office' };
 
-export default function HomeOffice({ technicians }: HomeOfficeProps) {
+export default function HomeOffice({ technicians, initialTechId }: HomeOfficeProps) {
   const currentWeek = useMemo(() => weekIdOf(new Date()), []);
   const [weekId, setWeekId] = useState(currentWeek);
-  const [team, setTeam] = useState<Team>(scope.get() ?? 'teleservice');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [team, setTeam] = useState<Team>(() => scope.get() ?? technicians.find((t) => t.uid === initialTechId)?.team ?? 'teleservice');
+  const [selectedId, setSelectedId] = useState<string | null>(initialTechId ?? null);
   const [refresh, setRefresh] = useState(0);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [showConfig, setShowConfig] = useState(false);
@@ -165,6 +168,17 @@ export default function HomeOffice({ technicians }: HomeOfficeProps) {
           ))}
         </div>
       </motion.div>
+
+      {!loading && rows.length > 0 && (
+        <HomeOfficeStepper
+          pointsCount={(loaded?.points ?? []).filter((p) => p.status === 'active' && rows.some((r) => r.tech.uid === p.technicianId)).length}
+          total={rows.length}
+          closedCount={rows.filter((r) => r.week).length}
+          ackCount={rows.filter((r) => r.week?.ackAt).length}
+          isCurrentWeek={weekId === currentWeek}
+          closable={[5, 6, 0].includes(new Date().getDay())}
+        />
+      )}
 
       {loading ? (
         <div className="grid gap-5 lg:grid-cols-5">
