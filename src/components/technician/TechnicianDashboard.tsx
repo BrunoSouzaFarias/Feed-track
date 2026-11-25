@@ -1,6 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { motion, useTransform, AnimatePresence } from 'motion/react';
-import { useMouseParallax } from '../../hooks/useMouseParallax';
+import { motion, AnimatePresence } from 'motion/react';
 import { BookOpen, Target, Award, PlusCircle, BarChart3, Milestone, Home, Sun, CalendarCheck } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useDataEffect } from '../../hooks/useDataEffect';
@@ -32,15 +31,6 @@ export default function TechnicianDashboard() {
   const { feedbacks, loading: feedbacksLoading, error: feedbacksError, refreshFeedbacks } = useFeedbacks(user?.uid);
   useSmoothScroll();
 
-  // Mouse Parallax 3D — orbes de fundo
-  const { x: mouseX, y: mouseY } = useMouseParallax(1);
-  // Orbe 1 (top-right): +15px de movimento
-  const orb1X = useTransform(mouseX, [-1, 1], [-15, 15]);
-  const orb1Y = useTransform(mouseY, [-1, 1], [-15, 15]);
-  // Orbe 2 (bottom-left): -10px de movimento (direção oposta)
-  const orb2X = useTransform(mouseX, [-1, 1], [10, -10]);
-  const orb2Y = useTransform(mouseY, [-1, 1], [10, -10]);
-  
   // Dashboard states
   const [profile, setProfile] = useState<User | null>(null);
   const TECH_TABS: readonly TechnicianTab[] = ['today', 'feedbacks', 'pdi', 'radar', 'badges', 'timeline', 'home-office'];
@@ -138,34 +128,8 @@ export default function TechnicianDashboard() {
   }, [profile]);
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 transition-colors duration-200 relative overflow-hidden canvas-grain">
+    <div className="min-h-screen bg-[#f6f7f9] dark:bg-[#111316] transition-colors duration-200 relative overflow-hidden">
       
-      {/* Premium Vignette Texture Filter */}
-      <div className="atmospheric-vignette" />
-
-      {/* Background glow effects — scroll parallax + mouse parallax 3D */}
-      <motion.div
-        className="absolute top-[-10%] right-[-10%] w-[600px] h-[600px] pointer-events-none"
-        style={{
-          x: orb1X,
-          y: orb1Y,
-          opacity: 'calc(1 - var(--scroll-progress, 0) * 0.45)',
-          willChange: 'transform, opacity'
-        }}
-      >
-        <div className="w-full h-full bg-primary/5 rounded-full blur-[140px] animate-float-slow" />
-      </motion.div>
-      <motion.div
-        className="absolute bottom-[-10%] left-[10%] w-[400px] h-[400px] pointer-events-none"
-        style={{
-          x: orb2X,
-          y: orb2Y,
-          opacity: 'calc(1 - var(--scroll-progress, 0) * 0.3)',
-          willChange: 'transform, opacity'
-        }}
-      >
-        <div className="w-full h-full bg-secondary-container/8 rounded-full blur-[100px] animate-float-medium" />
-      </motion.div>
 
       <Header />
 

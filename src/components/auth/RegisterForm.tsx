@@ -109,32 +109,8 @@ export default function RegisterForm() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-between bg-[#f9f9fd] dark:bg-[#111316] relative overflow-hidden px-4 py-8 transition-colors duration-200 canvas-grain">
+    <div className="min-h-screen flex flex-col items-center justify-between bg-[#f6f7f9] dark:bg-[#111316] relative overflow-hidden px-4 py-8 transition-colors duration-200">
       
-      {/* Premium Vignette Texture Filter */}
-      <div className="atmospheric-vignette" />
-
-      {/* Background glow effects to match the luxury executive look, synchronized with smooth scroll */}
-      <div 
-        className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[550px] h-[550px] pointer-events-none"
-        style={{
-          transform: 'translate3d(calc(var(--scroll-y, 0) * -0.05px), calc(var(--scroll-y, 0) * 0.08px), 0)',
-          opacity: 'calc(1 - var(--scroll-progress, 0) * 0.45)',
-          willChange: 'transform, opacity'
-        }}
-      >
-        <div className="w-full h-full bg-primary/8 rounded-full blur-[140px] animate-float-slow" />
-      </div>
-      <div 
-        className="absolute bottom-1/4 left-1/3 w-[350px] h-[350px] pointer-events-none"
-        style={{
-          transform: 'translate3d(calc(var(--scroll-y, 0) * 0.08px), calc(var(--scroll-y, 0) * -0.05px), 0)',
-          opacity: 'calc(1 - var(--scroll-progress, 0) * 0.3)',
-          willChange: 'transform, opacity'
-        }}
-      >
-        <div className="w-full h-full bg-secondary-container/15 rounded-full blur-[100px] animate-float-medium" />
-      </div>
 
       {/* Top spacer */}
       <div />

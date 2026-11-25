@@ -22,7 +22,7 @@
   --text-6xl: clamp(4.25rem, 3.2rem + 4.2vw, 6rem);
 
   /* Executive Precision Light Palette (Padrão) */
-  --color-background: #f9f9fd;
+  --color-background: #f6f7f9;
   --color-on-background: #1a1c1f;
   
   --color-surface: #f9f9fd;
@@ -216,19 +216,6 @@
   box-shadow: 0px 12px 32px rgba(0, 0, 0, 0.4);
 }
 
-/* Noise effect overlay */
-.noise-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  opacity: 0.02;
-  z-index: 9999;
-  pointer-events: none;
-  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-}
-
 /* Luxury visual cards with gradient borders */
 .luxury-card {
   position: relative;
@@ -326,45 +313,6 @@ input:focus, select:focus, textarea:focus {
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-}
-
-/* Atmospheric vignette filter to soften details and create deep editorial layouts */
-.atmospheric-vignette {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 9990;
-  background: radial-gradient(circle at center, transparent 40%, rgba(26, 28, 31, 0.02) 100%);
-  mix-blend-mode: multiply;
-  transition: opacity 0.3s ease;
-}
-
-.dark .atmospheric-vignette {
-  background: radial-gradient(circle at center, transparent 30%, rgba(0, 0, 0, 0.35) 100%);
-  mix-blend-mode: multiply;
-}
-
-/* Premium canvas paper texture overlay */
-.canvas-grain {
-  position: relative;
-}
-
-.canvas-grain::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.28;
-  background-image: radial-gradient(var(--color-primary) 0.5px, transparent 0.5px);
-  background-size: 28px 28px;
-  mask-image: radial-gradient(ellipse at center, black, transparent 80%);
-  -webkit-mask-image: radial-gradient(ellipse at center, black, transparent 80%);
-}
-
-.dark .canvas-grain::before {
-  opacity: 0.15;
-  background-image: radial-gradient(var(--color-primary) 0.5px, transparent 0.5px);
 }
 
 /* ===== SKELETON LOADING SHIMMER ===== */

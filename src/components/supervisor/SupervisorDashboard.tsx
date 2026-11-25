@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { motion, useTransform, AnimatePresence } from 'motion/react';
-import { useMouseParallax } from '../../hooks/useMouseParallax';
+import { AnimatePresence } from 'motion/react';
 import Avatar from '../shared/Avatar';
 import { useDataEffect } from '../../hooks/useDataEffect';
 import { useAuth } from '../../hooks/useAuth';
@@ -38,15 +37,6 @@ export default function SupervisorDashboard() {
   const { theme, toggleTheme } = useTheme();
   const { wrapperRef } = useSmoothScroll();
 
-  // Mouse Parallax 3D — orbes de fundo
-  const { x: mouseX, y: mouseY } = useMouseParallax(1);
-  // Orbe 1 (top-right): +15px de movimento
-  const orb1X = useTransform(mouseX, [-1, 1], [-15, 15]);
-  const orb1Y = useTransform(mouseY, [-1, 1], [-15, 15]);
-  // Orbe 2 (bottom-left): -10px de movimento (direção oposta)
-  const orb2X = useTransform(mouseX, [-1, 1], [10, -10]);
-  const orb2Y = useTransform(mouseY, [-1, 1], [10, -10]);
-  
   // Dashboard states
   const [technicians, setTechnicians] = useState<User[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -127,34 +117,8 @@ export default function SupervisorDashboard() {
   };
 
   return (
-    <div className="min-h-screen flex bg-[#f9f9fd] dark:bg-[#111316] text-[#1a1c1f] dark:text-[#e2e2e6] transition-colors duration-200 font-sans relative overflow-hidden w-full canvas-grain">
+    <div className="min-h-screen flex bg-[#f6f7f9] dark:bg-[#111316] text-[#1a1c1f] dark:text-[#e2e2e6] transition-colors duration-200 font-sans relative overflow-hidden w-full">
       
-      {/* Premium Vignette Texture Filter */}
-      <div className="atmospheric-vignette" />
-
-      {/* Background glow effects — scroll parallax + mouse parallax 3D */}
-      <motion.div
-        className="absolute top-[-10%] right-[-10%] w-[600px] h-[600px] pointer-events-none"
-        style={{
-          x: orb1X,
-          y: orb1Y,
-          opacity: 'calc(1 - var(--scroll-progress, 0) * 0.45)',
-          willChange: 'transform, opacity'
-        }}
-      >
-        <div className="w-full h-full bg-primary/5 rounded-full blur-[140px] animate-float-slow" />
-      </motion.div>
-      <motion.div
-        className="absolute bottom-[-10%] left-[20%] w-[400px] h-[400px] pointer-events-none"
-        style={{
-          x: orb2X,
-          y: orb2Y,
-          opacity: 'calc(1 - var(--scroll-progress, 0) * 0.3)',
-          willChange: 'transform, opacity'
-        }}
-      >
-        <div className="w-full h-full bg-secondary-container/8 rounded-full blur-[100px] animate-float-medium" />
-      </motion.div>
 
       {/* Sidebar Layout */}
       <SupervisorSidebar
