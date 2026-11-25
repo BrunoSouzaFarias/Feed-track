@@ -14,7 +14,7 @@ import { getActorId } from './actor';
 import { offlineSyncService } from './offlineSyncService';
 import { auditService } from './auditService';
 import {
-  ACK_COMMENT_MAX, DEFAULT_HOME_OFFICE_CONFIG, computeScore, isEligible, validatePointInput,
+  ACK_COMMENT_MAX, DEFAULT_HOME_OFFICE_CONFIG, computeScore, isEligible, mergeWithDefaults, validatePointInput,
   weekDocId, weekIdOfDateString,
 } from './homeOfficeLogic';
 
@@ -69,7 +69,7 @@ export const homeOfficeService = {
     if (isFirebaseMock) {
       try {
         const raw = localStorage.getItem(K.config);
-        return raw ? (JSON.parse(raw) as HomeOfficeConfig) : DEFAULT_HOME_OFFICE_CONFIG;
+        return raw ? mergeWithDefaults(JSON.parse(raw) as HomeOfficeConfig) : DEFAULT_HOME_OFFICE_CONFIG;
       } catch {
         return DEFAULT_HOME_OFFICE_CONFIG;
       }
@@ -77,11 +77,14 @@ export const homeOfficeService = {
     const snap = await getDoc(doc(db, 'config', 'homeOffice'));
     if (!snap.exists()) return DEFAULT_HOME_OFFICE_CONFIG;
     const data = snap.data();
-    return { categories: data.categories as HomeOfficeCategory[], threshold: data.threshold as number };
+    return mergeWithDefaults({ categories: data.categories as HomeOfficeCategory[], threshold: data.threshold as number });
   },
 
   async saveConfig(config: HomeOfficeConfig): Promise<void> {
     if (config.threshold < 0 || config.threshold > 100) throw new AppError('A nota de corte deve ficar entre 0 e 100.');
+    if (config.categories.some((c) => c.label.trim().length === 0 || c.label.length > 120)) {
+      throw new AppError('Cada categoria precisa de um nome de até 120 caracteres.');
+    }
     if (config.categories.some((c) => !Number.isInteger(c.points) || c.points < 1 || c.points > 100)) {
       throw new AppError('Cada categoria deve descontar de 1 a 100 pontos.');
     }

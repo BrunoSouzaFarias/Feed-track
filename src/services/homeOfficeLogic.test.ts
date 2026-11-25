@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  DEFAULT_HOME_OFFICE_CONFIG, weekIdOf, weekIdOfDateString, shiftWeek, weekRangeLabel,
+  DEFAULT_HOME_OFFICE_CONFIG, mergeWithDefaults, weekIdOf, weekIdOfDateString, shiftWeek, weekRangeLabel,
   computeScore, isEligible, scoreTone, weekDocId, validatePointInput,
 } from './homeOfficeLogic';
 
@@ -37,8 +37,9 @@ describe('saldo e elegibilidade', () => {
 });
 
 describe('configuração padrão', () => {
-  it('8 categorias de 10 pontos, corte 70, atestados sem anexo', () => {
-    expect(cat).toHaveLength(8);
+  it('10 categorias de 10 pontos (inclui GOTO e Outros), corte 70, atestados sem anexo', () => {
+    expect(cat).toHaveLength(10);
+    expect(cat.slice(-2).map((c) => [c.id, c.label])).toEqual([['goto', 'GOTO'], ['other', 'Outros']]);
     expect(cat.every((c) => c.points === 10 && c.active)).toBe(true);
     expect(DEFAULT_HOME_OFFICE_CONFIG.threshold).toBe(70);
     expect(cat.filter((c) => !c.requiresEvidence).map((c) => c.id)).toEqual(['medical_certificate', 'attendance_certificate']);
@@ -67,5 +68,22 @@ describe('scoreTone', () => {
     expect(scoreTone(70, 70)).toBe('ok');
     expect(scoreTone(55, 70)).toBe('warn');
     expect(scoreTone(54, 70)).toBe('bad');
+  });
+});
+
+describe('mergeWithDefaults', () => {
+  it('acrescenta as categorias padrão que a configuração salva ainda não tinha, sem mexer nas existentes', () => {
+    const old = { threshold: 80, categories: DEFAULT_HOME_OFFICE_CONFIG.categories.slice(0, 8).map((c) => ({ ...c, points: 5 })) };
+    const merged = mergeWithDefaults(old);
+    expect(merged.threshold).toBe(80);
+    expect(merged.categories).toHaveLength(10);
+    expect(merged.categories.slice(0, 8).every((c) => c.points === 5)).toBe(true);
+    expect(merged.categories.slice(8).map((c) => c.id)).toEqual(['goto', 'other']);
+  });
+  it('não duplica quando já existem (nem recria categoria desativada)', () => {
+    const full = { threshold: 70, categories: DEFAULT_HOME_OFFICE_CONFIG.categories.map((c) => (c.id === 'goto' ? { ...c, active: false } : c)) };
+    const merged = mergeWithDefaults(full);
+    expect(merged.categories).toHaveLength(10);
+    expect(merged.categories.find((c) => c.id === 'goto')?.active).toBe(false);
   });
 });

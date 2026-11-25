@@ -63,17 +63,21 @@ export default function HomeOfficeConfigModal({ config, onClose, onSaved }: Home
           <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {categories.map((c) => (
               <li key={c.id} className="flex items-center gap-3 py-3">
-                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
-                  <input type="checkbox" checked={c.active} onChange={(e) => patch(c.id, { active: e.target.checked })} className="h-4 w-4 accent-[#0bbb81]" />
-                  <span className={`text-sm font-semibold leading-snug ${c.active ? 'text-zinc-800 dark:text-zinc-100' : 'text-zinc-400 line-through'}`}>{c.label}</span>
+                <label className="flex shrink-0 cursor-pointer items-center" title="Categoria ativa">
+                  <input type="checkbox" aria-label={`Ativar ${c.label}`} checked={c.active} onChange={(e) => patch(c.id, { active: e.target.checked })} className="h-4 w-4 accent-[#0bbb81]" />
                 </label>
+                <input
+                  aria-label={`Nome da categoria ${c.label}`} value={c.label} maxLength={120}
+                  onChange={(e) => patch(c.id, { label: e.target.value })}
+                  className={`min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-sm font-semibold leading-snug outline-none transition hover:border-zinc-200 dark:hover:border-zinc-700 focus:border-[#0bbb81] focus:ring-2 focus:ring-[#0bbb81]/25 ${c.active ? 'text-zinc-800 dark:text-zinc-100' : 'text-zinc-400 line-through'}`}
+                />
                 <label className="flex items-center gap-1.5 text-xs font-bold text-zinc-400">
                   −<input aria-label={`Pontos de ${c.label}`} type="number" min={1} max={100} value={c.points} onChange={(e) => patch(c.id, { points: Number(e.target.value) })} className={input} />
                 </label>
               </li>
             ))}
           </ul>
-          <p className="text-[11px] leading-relaxed text-zinc-400">Mudar um peso não altera lançamentos antigos: cada lançamento guarda os pontos do momento em que foi feito.</p>
+          <p className="text-[11px] leading-relaxed text-zinc-400">Mudar um peso ou um nome não altera lançamentos antigos: cada lançamento guarda os pontos e o nome do momento em que foi feito.</p>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-zinc-100 dark:border-zinc-800 px-6 py-4">

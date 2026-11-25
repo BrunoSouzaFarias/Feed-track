@@ -22,8 +22,20 @@ export const DEFAULT_HOME_OFFICE_CONFIG: HomeOfficeConfig = {
     category('whatsapp_arrival', 'WhatsApp: chegou e não ficou disponível'),
     category('whatsapp_leave', 'WhatsApp: saiu e não deixou indisponível'),
     category('whatsapp_lunch', 'WhatsApp: almoço com status disponível'),
+    category('goto', 'GOTO'),
+    category('other', 'Outros'),
   ],
 };
+
+/**
+ * Configuração salva + categorias padrão que ainda não existiam quando ela foi salva
+ * (ex.: GOTO e Outros). Assim, quem já personalizou os pesos não perde as categorias novas.
+ */
+export function mergeWithDefaults(stored: HomeOfficeConfig): HomeOfficeConfig {
+  const known = new Set(stored.categories.map((c) => c.id));
+  const added = DEFAULT_HOME_OFFICE_CONFIG.categories.filter((c) => !known.has(c.id));
+  return { ...stored, categories: [...stored.categories, ...added] };
+}
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const toYmd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
