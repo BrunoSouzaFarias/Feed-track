@@ -261,7 +261,7 @@ export default function BatchExport({ technicians, feedbacks }: BatchExportProps
               {/* Team select */}
               <select
                 value={selectedTeam}
-                onChange={(e) => setSelectedTeam(e.target.value as any)}
+                onChange={(e) => setSelectedTeam(e.target.value as 'all' | 'back-office' | 'teleservice')}
                 className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-transparent text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
               >
                 <option value="all">Todos os Times</option>

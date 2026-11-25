@@ -1,14 +1,17 @@
-import { useState, useEffect, useMemo } from 'react';
-import { motion, useTransform, AnimatePresence } from 'motion/react';
-import { useMouseParallax } from '../../hooks/useMouseParallax';
-import { BookOpen, Target, Award, PlusCircle, BarChart3, Milestone } from 'lucide-react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { BookOpen, Target, Award, PlusCircle, BarChart3, Milestone, Home, Sun, CalendarCheck } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { useDataEffect } from '../../hooks/useDataEffect';
 import { useAuth } from '../../hooks/useAuth';
 import { useFeedbacks } from '../../hooks/useFeedbacks';
 import { userService } from '../../services/userService';
-import type { User } from '../../types';
+import type { User, SelfAssessment as SelfAssessmentRecord } from '../../types';
 import Header from '../shared/Header';
 import MyFeedbacks from './MyFeedbacks';
 import MyPDI from './MyPDI';
+import MyHomeOffice from './MyHomeOffice';
+import MyToday, { type TechnicianTab } from './MyToday';
 import BadgesPanel from './BadgesPanel';
 import CareerTimeline from './CareerTimeline';
 import SelfAssessment from './SelfAssessment';
@@ -21,27 +24,26 @@ import Magnetic from '../shared/Magnetic';
 import Tilt3D from '../shared/Tilt3D';
 import PageTransition from '../shared/PageTransition';
 import { Skeleton } from '../shared/Skeleton';
+import { friendlyError } from '../../services/errors';
 
 export default function TechnicianDashboard() {
   const { user } = useAuth();
   const { feedbacks, loading: feedbacksLoading, error: feedbacksError, refreshFeedbacks } = useFeedbacks(user?.uid);
   useSmoothScroll();
 
-  // Mouse Parallax 3D — orbes de fundo
-  const { x: mouseX, y: mouseY } = useMouseParallax(1);
-  // Orbe 1 (top-right): +15px de movimento
-  const orb1X = useTransform(mouseX, [-1, 1], [-15, 15]);
-  const orb1Y = useTransform(mouseY, [-1, 1], [-15, 15]);
-  // Orbe 2 (bottom-left): -10px de movimento (direção oposta)
-  const orb2X = useTransform(mouseX, [-1, 1], [10, -10]);
-  const orb2Y = useTransform(mouseY, [-1, 1], [10, -10]);
-  
   // Dashboard states
   const [profile, setProfile] = useState<User | null>(null);
-  const [activeTab, setActiveTab] = useState<'feedbacks' | 'pdi' | 'radar' | 'badges' | 'timeline'>('feedbacks');
+  const TECH_TABS: readonly TechnicianTab[] = ['today', 'feedbacks', 'pdi', 'radar', 'badges', 'timeline', 'home-office'];
+  // Link direto: /technician?tab=home-office (só ids válidos; qualquer outro valor cai em "feedbacks").
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<TechnicianTab>(() => {
+    const requested = searchParams.get('tab');
+    return TECH_TABS.find((t) => t === requested) ?? 'today';
+  });
   const [isAssessmentOpen, setIsAssessmentOpen] = useState(false);
   const [hasAssessments, setHasAssessments] = useState(false);
-  const [latestSelfAssessment, setLatestSelfAssessment] = useState<any>(null);
+  const [latestSelfAssessment, setLatestSelfAssessment] = useState<SelfAssessmentRecord['scores'] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Stagger animation layouts
@@ -62,35 +64,53 @@ export default function TechnicianDashboard() {
     }
   };
 
-  const loadProfile = async () => {
-    if (!user) return;
-    setIsLoading(true);
-    try {
-      const data = await userService.getUser(user.uid);
-      setProfile(data);
-      
-      const assessmentsList = await userService.getSelfAssessments(user.uid);
-      setHasAssessments(assessmentsList.length > 0);
+  const fetchProfileData = useCallback(async () => {
+    if (!user) return null;
+    const [data, assessmentsList] = await Promise.all([
+      userService.getUser(user.uid),
+      userService.getSelfAssessments(user.uid),
+    ]);
+    return { data, assessmentsList };
+  }, [user]);
 
-      if (assessmentsList.length > 0) {
-        // Sort by date descending
-        const sorted = [...assessmentsList].sort((a, b) =>
-          parseDate(b.createdAt).getTime() - parseDate(a.createdAt).getTime()
-        );
-        setLatestSelfAssessment(sorted[0].scores);
-      } else {
-        setLatestSelfAssessment(null);
-      }
+  const applyProfileData = (r: Awaited<ReturnType<typeof fetchProfileData>>) => {
+    if (!r) return;
+    setProfile(r.data);
+    setHasAssessments(r.assessmentsList.length > 0);
+    if (r.assessmentsList.length > 0) {
+      // Mais recente primeiro
+      const sorted = [...r.assessmentsList].sort((x, y) =>
+        parseDate(y.createdAt).getTime() - parseDate(x.createdAt).getTime()
+      );
+      setLatestSelfAssessment(sorted[0].scores);
+    } else {
+      setLatestSelfAssessment(null);
+    }
+  };
+
+  // Recarga manual (onRefresh dos painéis)
+  const loadProfile = async () => {
+    try {
+      applyProfileData(await fetchProfileData());
     } catch (err) {
-      toast.error('Erro ao carregar dados do perfil.');
+      toast.error(friendlyError(err, 'Erro ao carregar dados do perfil.'));
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Carga inicial / quando o usuário muda
+  useDataEffect(
+    fetchProfileData,
+    (r) => { applyProfileData(r); setIsLoading(false); },
+    (err) => { toast.error(friendlyError(err, 'Erro ao carregar dados do perfil.')); setIsLoading(false); },
+    [user]
+  );
+
+  // Mantém a aba ativa visível na barra rolável (ex.: link direto para "Home Office" no celular).
   useEffect(() => {
-    loadProfile();
-  }, [user]);
+    tabsRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }, [activeTab]);
 
   // Compute supervisor scores based on feedbacks
   const supervisorScores = useMemo(() => {
@@ -108,38 +128,12 @@ export default function TechnicianDashboard() {
   }, [profile]);
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 transition-colors duration-200 relative overflow-hidden canvas-grain">
+    <div className="min-h-screen bg-[#f6f7f9] dark:bg-[#111316] transition-colors duration-200 relative overflow-hidden">
       
-      {/* Premium Vignette Texture Filter */}
-      <div className="atmospheric-vignette" />
-
-      {/* Background glow effects — scroll parallax + mouse parallax 3D */}
-      <motion.div
-        className="absolute top-[-10%] right-[-10%] w-[600px] h-[600px] pointer-events-none"
-        style={{
-          x: orb1X,
-          y: orb1Y,
-          opacity: 'calc(1 - var(--scroll-progress, 0) * 0.45)',
-          willChange: 'transform, opacity'
-        }}
-      >
-        <div className="w-full h-full bg-primary/5 rounded-full blur-[140px] animate-float-slow" />
-      </motion.div>
-      <motion.div
-        className="absolute bottom-[-10%] left-[10%] w-[400px] h-[400px] pointer-events-none"
-        style={{
-          x: orb2X,
-          y: orb2Y,
-          opacity: 'calc(1 - var(--scroll-progress, 0) * 0.3)',
-          willChange: 'transform, opacity'
-        }}
-      >
-        <div className="w-full h-full bg-secondary-container/8 rounded-full blur-[100px] animate-float-medium" />
-      </motion.div>
 
       <Header />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left relative z-10">
+      <main id="conteudo" tabIndex={-1} className="pb-28 md:pb-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left relative z-10">
         
         {/* Welcome block */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
@@ -178,14 +172,14 @@ export default function TechnicianDashboard() {
 
         {/* Dashboard summary grid */}
         {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+          <div className={`${activeTab === 'today' ? 'hidden sm:grid' : 'grid'} grid-cols-1 sm:grid-cols-3 gap-4 mb-8`}>
             <Skeleton variant="card" />
             <Skeleton variant="card" />
             <Skeleton variant="card" />
           </div>
         ) : (
           <motion.div
-            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-8"
+            className={`${activeTab === 'today' ? 'hidden sm:grid' : 'grid'} grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-8`}
             variants={containerVariants}
             initial="hidden"
             animate="visible"
@@ -260,12 +254,14 @@ export default function TechnicianDashboard() {
         )}
 
         {/* Tab options row */}
-        <div className="flex border-b border-zinc-200 dark:border-zinc-800 mb-8 overflow-x-auto gap-2 select-none scrollbar-none scroll-smooth snap-x snap-mandatory md:snap-none" role="tablist" aria-label="Abas do painel">
+        <div ref={tabsRef} className="hidden md:flex border-b border-zinc-200 dark:border-zinc-800 mb-8 overflow-x-auto gap-2 select-none scrollbar-none scroll-smooth snap-x snap-mandatory md:snap-none" role="tablist" aria-label="Abas do painel">
           {[
+            { id: 'today', label: 'Hoje', icon: Sun },
             { id: 'feedbacks', label: 'Meus Feedbacks', icon: BookOpen },
             { id: 'pdi', label: 'Meu Plano de Desenvolvimento (PDI)', icon: Target },
             { id: 'radar', label: 'Radar de Competências', icon: BarChart3 },
             { id: 'badges', label: 'Minhas Conquistas', icon: Award },
+            { id: 'home-office', label: 'Home Office', icon: Home },
             { id: 'timeline', label: 'Jornada & Linha do Tempo', icon: Milestone }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -273,14 +269,13 @@ export default function TechnicianDashboard() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => setActiveTab(tab.id as typeof activeTab)}
                 className={`relative flex items-center gap-2 py-3 px-4 font-bold text-sm shrink-0 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-liberty focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-950 rounded-lg snap-start ${
                   isActive
                     ? 'text-liberty dark:text-liberty-sky'
                     : 'text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-300'
                 }`}
-                role="tab"
-                aria-selected={isActive}
+                aria-current={isActive ? 'page' : undefined}
               >
                 <Icon className="w-4.5 h-4.5 z-10" />
                 <span className="z-10">{tab.label}</span>
@@ -299,6 +294,10 @@ export default function TechnicianDashboard() {
         {/* Tab view containers */}
         <PageTransition keyId={activeTab}>
           <div>
+          {activeTab === 'today' && profile && (
+            <MyToday userProfile={profile} feedbacks={feedbacks} onGo={setActiveTab} onOpenAssessment={() => setIsAssessmentOpen(true)} />
+          )}
+
           {activeTab === 'feedbacks' && (
             <MyFeedbacks
               feedbacks={feedbacks}
@@ -357,6 +356,8 @@ export default function TechnicianDashboard() {
             />
           )}
 
+          {activeTab === 'home-office' && profile && <MyHomeOffice userProfile={profile} />}
+
           {activeTab === 'timeline' && profile && (
             <CareerTimeline
               userProfile={profile}
@@ -367,6 +368,28 @@ export default function TechnicianDashboard() {
         </PageTransition>
 
       </main>
+
+      {/* Barra de abas (celular): as ações mais usadas ao alcance do polegar */}
+      <nav aria-label="Principal" className="md:hidden fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-[#16191d]/95 px-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur">
+        {([
+          { id: 'today', label: 'Hoje', icon: Sun },
+          { id: 'feedbacks', label: 'Feedbacks', icon: BookOpen },
+          { id: 'home-office', label: 'Semana', icon: CalendarCheck },
+          { id: 'pdi', label: 'Metas', icon: Target },
+          { id: 'badges', label: 'Conquistas', icon: Award },
+        ] as const).map(({ id, label, icon: Icon }) => {
+          const isActive = activeTab === id;
+          return (
+            <button
+              key={id} type="button" onClick={() => setActiveTab(id)} aria-current={isActive ? 'page' : undefined}
+              className={`flex min-h-[52px] flex-1 flex-col items-center justify-center gap-1 rounded-xl text-[11px] cursor-pointer ${isActive ? 'font-extrabold text-[#006c49] dark:text-[#4bdfa1]' : 'font-semibold text-zinc-500 dark:text-zinc-400'}`}
+            >
+              <Icon className="h-[22px] w-[22px]" strokeWidth={isActive ? 2.4 : 2} />
+              {label}
+            </button>
+          );
+        })}
+      </nav>
 
       {/* Self assessment modal overlay */}
       <AnimatePresence>

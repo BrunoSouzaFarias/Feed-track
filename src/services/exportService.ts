@@ -1,13 +1,13 @@
-import type { Feedback } from '../types';
+import type { Feedback, User } from '../types';
 import { parseDate } from './dateUtils';
 
 const PDF_PAGE_LIMIT = 500;
 
-// Prevents CSV formula injection: Excel/Sheets execute a cell's content as a
-// formula when it starts with =, +, -, @ (or a tab/CR). Prefixing with a
-// single quote forces it to be read as plain text instead of executed.
-function sanitizeCsvCell(value: string): string {
-  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+// Evita injeção de fórmula em CSV: Excel/Sheets executam a célula como fórmula
+// quando ela começa com = + - @ (ou tab/CR), inclusive depois de espaços
+// iniciais e com variantes Unicode de largura total. O prefixo "'" força texto.
+export function sanitizeCsvCell(value: string): string {
+  const safe = /^[\s\u00A0\uFEFF]*[=+\-@\uFF1D\uFF0B\uFF0D\uFF20\t\r]/.test(value) ? `'${value}` : value;
   return `"${safe.replace(/"/g, '""')}"`;
 }
 
@@ -168,7 +168,7 @@ export const exportService = {
     });
 
     // Footer layout for all pages
-    const totalPages = (doc as any).internal.getNumberOfPages();
+    const totalPages = doc.getNumberOfPages();
     for (let i = 1; i <= totalPages; i++) {
       doc.setPage(i);
       doc.setFontSize(8.5);
@@ -188,7 +188,7 @@ export const exportService = {
 
   exportTeamData(
     teamData: {
-      technician: any;
+      technician: User;
       climate: {
         communication: number;
         teamwork: number;

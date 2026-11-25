@@ -1,23 +1,14 @@
 import { useState, useEffect } from 'react';
-import { offlineSyncService } from '../services/offlineSyncService';
+import { offlineSyncService, type SyncStatus } from '../services/offlineSyncService';
 
 export function useOfflineSync() {
-  const [status, setStatus] = useState({
-    online: offlineSyncService.isOnline(),
-    pendingCount: offlineSyncService.getQueue().length,
-    syncing: false
-  });
+  const [status, setStatus] = useState<SyncStatus>(() => offlineSyncService.getStatus());
 
-  useEffect(() => {
-    const unsubscribe = offlineSyncService.addListener((newStatus) => {
-      setStatus(newStatus);
-    });
-    return unsubscribe;
-  }, []);
+  useEffect(() => offlineSyncService.addListener(setStatus), []);
 
   return {
     ...status,
     checkConnection: () => offlineSyncService.checkConnection(),
-    processQueue: () => offlineSyncService.processQueue()
+    processQueue: () => offlineSyncService.processQueue(),
   };
 }

@@ -10,6 +10,7 @@ import { exportService } from '../../services/exportService';
 import { parseDate } from '../../services/dateUtils';
 import { useAuth } from '../../hooks/useAuth';
 import toast from 'react-hot-toast';
+import { friendlyError } from '../../services/errors';
 
 interface MyFeedbacksProps {
   feedbacks: Feedback[];
@@ -47,7 +48,7 @@ export default function MyFeedbacks({ feedbacks, loading = false, error = null, 
         onRefresh();
         toast.success('Feedback marcado como lido!');
       } catch (err) {
-        toast.error('Erro ao marcar feedback como lido.');
+        toast.error(friendlyError(err, 'Erro ao marcar feedback como lido.'));
       }
     }
   };
@@ -66,7 +67,7 @@ export default function MyFeedbacks({ feedbacks, loading = false, error = null, 
       toast.success('Feedback assinado digitalmente com sucesso!');
       onRefresh();
     } catch (err) {
-      toast.error('Erro ao assinar feedback.');
+      toast.error(friendlyError(err, 'Erro ao assinar feedback.'));
     } finally {
       setSigningId(null);
     }

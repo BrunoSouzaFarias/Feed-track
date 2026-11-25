@@ -1,7 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Target, Calendar, PlusCircle, Loader2, ArrowRight } from 'lucide-react';
 import type { User, PDIGoal } from '../../types';
+import { Timestamp } from 'firebase/firestore';
+import { useDataEffect } from '../../hooks/useDataEffect';
+import { formatDate } from '../../services/dateUtils';
 import { userService } from '../../services/userService';
+import { newId } from '../../services/ids';
+import { friendlyError } from '../../services/errors';
 import toast from 'react-hot-toast';
 
 interface PDIManagerProps {
@@ -11,24 +16,28 @@ interface PDIManagerProps {
 
 export default function PDIManager({ technicians, onUpdate }: PDIManagerProps) {
   const [selectedTechId, setSelectedTechId] = useState('');
-  const [techData, setTechData] = useState<User | null>(null);
+  const [loadedTechData, setTechData] = useState<User | null>(null);
+  // Estado derivado: sem colaborador selecionado, não há dados (sem setState em effect).
+  const techData = selectedTechId ? loadedTechData : null;
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [deadline, setDeadline] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (selectedTechId) {
-      loadTechData();
-    } else {
-      setTechData(null);
+  const loadTechData = useCallback(async () => {
+    try {
+      setTechData(await userService.getUser(selectedTechId));
+    } catch (err) {
+      toast.error(friendlyError(err, 'Erro ao carregar o PDI do colaborador.'));
     }
-  }, [selectedTechId, technicians]);
+  }, [selectedTechId]);
 
-  const loadTechData = async () => {
-    const data = await userService.getUser(selectedTechId);
-    setTechData(data);
-  };
+  useDataEffect(
+    () => (selectedTechId ? userService.getUser(selectedTechId) : Promise.resolve(null)),
+    setTechData,
+    (err) => toast.error(friendlyError(err, 'Erro ao carregar o PDI do colaborador.')),
+    [selectedTechId, technicians]
+  );
 
   const handleAddGoal = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,12 +49,12 @@ export default function PDIManager({ technicians, onUpdate }: PDIManagerProps) {
     setSubmitting(true);
     try {
       const newGoal: PDIGoal = {
-        id: 'pdi_' + Date.now(),
+        id: newId('pdi'),
         title,
         description,
         deadline,
         status: 'pending',
-        createdAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any // Simulated Firestore Timestamp
+        createdAt: Timestamp.now()
       };
 
       await userService.addPDIGoal(selectedTechId, newGoal);
@@ -55,8 +64,8 @@ export default function PDIManager({ technicians, onUpdate }: PDIManagerProps) {
       setDeadline('');
       await loadTechData();
       onUpdate();
-    } catch (err: any) {
-      toast.error('Erro ao adicionar objetivo.');
+    } catch (err) {
+      toast.error(friendlyError(err, 'Erro ao adicionar objetivo.'));
     } finally {
       setSubmitting(false);
     }
@@ -80,7 +89,7 @@ export default function PDIManager({ technicians, onUpdate }: PDIManagerProps) {
       await loadTechData();
       onUpdate();
     } catch (err) {
-      toast.error('Erro ao atualizar status.');
+      toast.error(friendlyError(err, 'Erro ao atualizar status.'));
     }
   };
 
@@ -177,7 +186,7 @@ export default function PDIManager({ technicians, onUpdate }: PDIManagerProps) {
 
                         <div className="flex justify-between items-center text-xs mt-1 border-t border-zinc-100 dark:border-zinc-800/80 pt-2.5">
                           <span className="flex items-center gap-1 text-zinc-500">
-                            <Calendar className="w-3.5 h-3.5" /> Prazo: {goal.deadline}
+                            <Calendar className="w-3.5 h-3.5" /> Prazo: {formatDate(goal.deadline)}
                           </span>
                           <button
                             onClick={() => handleStatusChange(goal.id, goal.status)}

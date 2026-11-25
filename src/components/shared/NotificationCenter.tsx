@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useDataEffect } from '../../hooks/useDataEffect';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -24,7 +25,7 @@ import type { Feedback, User, SelfAssessment } from '../../types';
 const playCorporateChime = (muted: boolean) => {
   if (muted) return;
   try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextClass) return;
     const ctx = new AudioContextClass();
     const now = ctx.currentTime;
@@ -81,49 +82,70 @@ export default function NotificationCenter() {
   const [teamTechs, setTeamTechs] = useState<User[]>([]);
   const [teamAssessments, setTeamAssessments] = useState<SelfAssessment[]>([]);
   const [hasSaCurrentPeriod, setHasSaCurrentPeriod] = useState(true);
-  const [lastNotificationCount, setLastNotificationCount] = useState(0);
+  const lastNotificationCountRef = useRef(0);
+  // "Agora" em estado (atualizado no polling): Date.now() não pode ser chamado durante o render.
+  const [now, setNow] = useState(() => Date.now());
 
-  // Load notification sources
-  const loadNotificationData = async () => {
-    if (!user) return;
-    try {
-      if (user.role === 'technician') {
-        // Feedbacks for technician
-        const fbs = await feedbackService.getFeedbacks(user.uid);
-        setFeedbacks(fbs);
-
-        // Profile for PDI goals
-        const profile = await userService.getUser(user.uid);
-        setTechProfile(profile);
-
-        // Check self assessments
-        const assessments = await userService.getSelfAssessments(user.uid);
-        const currentYear = new Date().getFullYear();
-        const currentMonth = new Date().getMonth();
-        const currentQuarter = Math.floor(currentMonth / 3) + 1;
-        const currentPeriod = `${currentYear}-Q${currentQuarter}`;
-        const hasCurrentSA = assessments.some(sa => sa.period === currentPeriod);
-        setHasSaCurrentPeriod(hasCurrentSA);
-      } else {
-        // Supervisor: load all feedbacks and all technicians
-        const fbs = await feedbackService.getFeedbacks();
-        setFeedbacks(fbs);
-        const techs = await userService.getAllTechnicians();
-        setTeamTechs(techs);
-        const assessments = await userService.getSelfAssessments();
-        setTeamAssessments(assessments);
-      }
-    } catch (e) {
-      console.error("Error loading notification resources", e);
+  // Busca (pura) das fontes de notificação — o setState acontece só em applyNotificationData.
+  const fetchNotificationData = useCallback(async () => {
+    if (!user) return null;
+    if (user.role === 'technician') {
+      const fbs = await feedbackService.getFeedbacks(user.uid);
+      const profile = await userService.getUser(user.uid);
+      const assessments = await userService.getSelfAssessments(user.uid);
+      const currentPeriod = `${new Date().getFullYear()}-Q${Math.floor(new Date().getMonth() / 3) + 1}`;
+      return { kind: 'technician' as const, fbs, profile, hasCurrentSA: assessments.some(sa => sa.period === currentPeriod) };
     }
-  };
+    const fbs = await feedbackService.getFeedbacks();
+    const techs = await userService.getAllTechnicians();
+    const assessments = await userService.getSelfAssessments();
+    return { kind: 'supervisor' as const, fbs, techs, assessments };
+  }, [user]);
+
+  const applyNotificationData = useCallback((r: Awaited<ReturnType<typeof fetchNotificationData>>) => {
+    if (!r) return;
+    setFeedbacks(r.fbs);
+    if (r.kind === 'technician') {
+      setTechProfile(r.profile);
+      setHasSaCurrentPeriod(r.hasCurrentSA);
+    } else {
+      setTeamTechs(r.techs);
+      setTeamAssessments(r.assessments);
+    }
+  }, []);
+
+  // Recarga sob demanda (após ações, polling e retorno à aba)
+  const loadNotificationData = useCallback(async () => {
+    try {
+      applyNotificationData(await fetchNotificationData());
+    } catch (e) {
+      console.error('Error loading notification resources', e);
+    }
+  }, [fetchNotificationData, applyNotificationData]);
+
+  // Carga inicial / troca de usuário
+  useDataEffect(
+    fetchNotificationData,
+    applyNotificationData,
+    (e) => console.error('Error loading notification resources', e),
+    [user]
+  );
 
   useEffect(() => {
-    loadNotificationData();
-    // Poll every 12 seconds for local changes or background actions
-    const interval = setInterval(loadNotificationData, 12000);
-    return () => clearInterval(interval);
-  }, [user]);
+    // Cada ciclo faz leituras no Firestore (custo): atualiza a cada 60 s e
+    // SOMENTE com a aba visível; ao voltar para a aba, atualiza na hora.
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') { setNow(Date.now()); void loadNotificationData(); }
+    }, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadNotificationData();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [loadNotificationData]);
 
   // Compute notifications list dynamically
   const notifications = useMemo(() => {
@@ -161,7 +183,7 @@ export default function NotificationCenter() {
           .filter(goal => goal.status !== 'completed')
           .forEach(goal => {
             const deadlineDate = parseLocalDate(goal.deadline);
-            const diffTime = deadlineDate.getTime() - Date.now();
+            const diffTime = deadlineDate.getTime() - now;
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             const deadlineLabel = formatDate(goal.deadline);
 
@@ -228,7 +250,7 @@ export default function NotificationCenter() {
             .filter(goal => goal.status !== 'completed')
             .forEach(goal => {
               const deadlineDate = parseLocalDate(goal.deadline);
-              const diffTime = deadlineDate.getTime() - Date.now();
+              const diffTime = deadlineDate.getTime() - now;
               const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
               if (diffDays <= 5) {
@@ -284,14 +306,14 @@ export default function NotificationCenter() {
     }
 
     return list;
-  }, [feedbacks, techProfile, teamTechs, teamAssessments, hasSaCurrentPeriod, user]);
+  }, [feedbacks, techProfile, teamTechs, teamAssessments, hasSaCurrentPeriod, user, now, loadNotificationData]);
 
   // Audio trigger on new notification addition
   useEffect(() => {
-    if (notifications.length > lastNotificationCount && lastNotificationCount > 0) {
+    if (notifications.length > lastNotificationCountRef.current && lastNotificationCountRef.current > 0) {
       playCorporateChime(muted);
     }
-    setLastNotificationCount(notifications.length);
+    lastNotificationCountRef.current = notifications.length;
   }, [notifications.length, muted]);
 
   const toggleMute = () => {

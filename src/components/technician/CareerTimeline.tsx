@@ -34,7 +34,7 @@ interface TimelineEvent {
   title: string;
   subtitle?: string;
   description: string;
-  meta?: any; // Extra data for custom rendering
+  meta?: Record<string, unknown>; // Extra data for custom rendering
 }
 
 export default function CareerTimeline({ userProfile, feedbacks }: CareerTimelineProps) {
@@ -117,7 +117,7 @@ export default function CareerTimeline({ userProfile, feedbacks }: CareerTimelin
           type: 'pdi_goal',
           date: parseDate(g.createdAt),
           title: `Meta de PDI Definida: ${g.title}`,
-          subtitle: `Prazo acordado: ${g.deadline}`,
+          subtitle: `Prazo acordado: ${parseLocalDate(g.deadline).toLocaleDateString("pt-BR")}`,
           description: g.description,
           meta: {
             goalStatus: g.status,
@@ -316,7 +316,7 @@ export default function CareerTimeline({ userProfile, feedbacks }: CareerTimelin
             <button
               key={tab.id}
               onClick={() => {
-                setFilter(tab.id as any);
+                setFilter(tab.id as typeof filter);
                 setExpandedNodeId(null); // Reset detail expansion when filtering
               }}
               className={`py-1.5 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer border transition-all ${
@@ -422,7 +422,7 @@ export default function CareerTimeline({ userProfile, feedbacks }: CareerTimelin
                             {/* Extra attributes based on type */}
                             {event.type === 'feedback_signed' && (
                               <div className="flex flex-wrap gap-4 text-[10px] text-zinc-500 mt-2 font-medium">
-                                <span>Eixo: <strong className="text-zinc-700 dark:text-zinc-300">{event.meta?.axis}</strong></span>
+                                <span>Eixo: <strong className="text-zinc-700 dark:text-zinc-300">{String(event.meta?.axis ?? "")}</strong></span>
                                 <span>Status: <strong className={event.meta?.isSigned ? 'text-emerald-500' : 'text-amber-500'}>
                                   {event.meta?.isSigned ? 'Assinado / Lido' : 'Pendente de Leitura'}
                                 </strong></span>

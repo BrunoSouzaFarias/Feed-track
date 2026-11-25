@@ -20,6 +20,8 @@ export function useSmoothScroll(enabled: boolean = true) {
 
   useEffect(() => {
     if (!enabled) return;
+    // Respeita a preferência do sistema por menos movimento.
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
     // Initialize Lenis.
     // If wrapper is null, it defaults to window scroll.
@@ -37,7 +39,7 @@ export function useSmoothScroll(enabled: boolean = true) {
 
     const scrollTarget = document.documentElement;
 
-    const handleScroll = (e: any) => {
+    const handleScroll = (e: { scroll?: number; progress?: number; velocity?: number }) => {
       const scrollY = e.scroll ?? 0;
       const progress = e.progress ?? 0;
       const velocity = e.velocity ?? 0;

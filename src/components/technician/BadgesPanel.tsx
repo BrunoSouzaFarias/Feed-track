@@ -3,6 +3,7 @@ import { Award, Lock, Sparkles, Star, Milestone, MessageSquare, Flame, BookOpen 
 import type { User, Badge, Feedback } from '../../types';
 import { userService } from '../../services/userService';
 import { parseDate } from '../../services/dateUtils';
+import { isFirebaseMock, useCloudFunctions } from '../../services/env';
 import { Timestamp } from 'firebase/firestore';
 import confetti from 'canvas-confetti';
 import toast from 'react-hot-toast';
@@ -16,7 +17,7 @@ interface BadgesPanelProps {
 
 export default function BadgesPanel({ userProfile, feedbacks, hasAssessments, onRefresh }: BadgesPanelProps) {
   
-  const currentBadges = userProfile.badges || [];
+  const currentBadges = useMemo(() => userProfile.badges || [], [userProfile.badges]);
 
   // Definition of all possible badges in the system
   const badgeDefinitions = useMemo(() => [
@@ -56,7 +57,7 @@ export default function BadgesPanel({ userProfile, feedbacks, hasAssessments, on
       condition: () => {
         const createdDate = parseDate(userProfile.createdAt);
         const days = (Date.now() - createdDate.getTime()) / (1000 * 60 * 60 * 24);
-        return days >= 30 || userProfile.uid === 'tech1'; // Make it unlocked for default demo tech
+        return days >= 30 || (isFirebaseMock && userProfile.uid === 'tech1'); // atalho só na conta de demonstração (modo mock)
       }
     }
   ], [feedbacks, userProfile, hasAssessments]);
@@ -67,6 +68,22 @@ export default function BadgesPanel({ userProfile, feedbacks, hasAssessments, on
 
     (async () => {
       let unlockedAny = false;
+
+      if (useCloudFunctions) {
+        // O servidor decide e concede; o cliente só pergunta se há algo novo.
+        const pending = badgeDefinitions.some((b) => !currentBadges.some((cb) => cb.id === b.id) && b.condition());
+        if (!pending) return;
+        try {
+          const granted = await userService.claimBadges();
+          if (cancelled || granted.length === 0) return;
+          granted.forEach((g) => toast(`Nova Conquista Desbloqueada: ${g.title}!`, { duration: 4000, icon: '🏅' }));
+          confetti({ particleCount: 100, spread: 70, colors: ['#004B8D', '#00ABE7', '#2ECC71'], origin: { y: 0.6 } });
+          onRefresh();
+        } catch (err) {
+          console.warn('claimBadges falhou:', err);
+        }
+        return;
+      }
 
       // Sequential (not forEach+async): each addBadge is a read-modify-write
       // of userProfile.badges, so awaiting one before starting the next

@@ -1,225 +1,12 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { User, Feedback } from '../../types';
-import { parseDate, parseLocalDate } from '../../services/dateUtils';
+import { generateInsights, computeTeamHealth } from '../../services/executiveInsights';
+import { parseDate } from '../../services/dateUtils';
 
 interface ExecutiveInsightsProps {
   technicians: User[];
   feedbacks: Feedback[];
-}
-
-interface InsightCard {
-  id: string;
-  type: 'alert' | 'opportunity' | 'recognition' | 'training';
-  priority: 'critical' | 'high' | 'medium' | 'low';
-  title: string;
-  description: string;
-  technicianName?: string;
-  technicianId?: string;
-  metric?: string;
-  action?: string;
-  icon: string;
-}
-
-interface TeamHealth {
-  overall: number;
-  feedbackVelocity: number;
-  pdiCompletionRate: number;
-  positiveRatio: number;
-  engagementScore: number;
-}
-
-// Local AI Engine — pure deterministic rules + weighted scoring
-function generateInsights(technicians: User[], feedbacks: Feedback[]): InsightCard[] {
-  const insights: InsightCard[] = [];
-  const now = new Date();
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-  if (technicians.length === 0) return [];
-
-  // --- RULE 1: Technicians with zero feedback in 30 days ---
-  technicians.forEach(tech => {
-    const recentFbs = feedbacks.filter(fb => {
-      const d = parseDate(fb.createdAt);
-      return fb.technicianId === tech.uid && d > thirtyDaysAgo;
-    });
-    if (recentFbs.length === 0) {
-      insights.push({
-        id: `no-fb-${tech.uid}`,
-        type: 'alert',
-        priority: 'high',
-        title: 'Colaborador sem feedback recente',
-        description: `${tech.name} não recebeu nenhum feedback nos últimos 30 dias. Conversas 1:1 regulares aumentam o engajamento em até 47%.`,
-        technicianName: tech.name,
-        technicianId: tech.uid,
-        metric: '0 feedbacks / 30d',
-        action: 'Agendar 1:1 esta semana',
-        icon: '⚠️',
-      });
-    }
-  });
-
-  // --- RULE 2: Technicians with all development (no positive) feedbacks in last 30 days ---
-  technicians.forEach(tech => {
-    const recent = feedbacks.filter(fb => {
-      const d = parseDate(fb.createdAt);
-      return fb.technicianId === tech.uid && d > thirtyDaysAgo;
-    });
-    if (recent.length >= 2 && recent.every(fb => fb.type === 'development')) {
-      insights.push({
-        id: `only-dev-${tech.uid}`,
-        type: 'training',
-        priority: 'medium',
-        title: 'Equilíbrio feedback positivo/desenvolvimento',
-        description: `${tech.name} recebeu apenas feedbacks de desenvolvimento. A proporção ideal é 3:1 (positivo:desenvolvimento) para manter motivação e crescimento.`,
-        technicianName: tech.name,
-        technicianId: tech.uid,
-        metric: `${recent.length} feedbacks de desenvolvimento`,
-        action: 'Registrar reconhecimento positivo',
-        icon: '🔄',
-      });
-    }
-  });
-
-  // --- RULE 3: PDI goals overdue ---
-  technicians.forEach(tech => {
-    const overdue = (tech.structuredPDI || []).filter(goal => {
-      if (goal.status === 'completed') return false;
-      const deadline = parseLocalDate(goal.deadline);
-      return deadline < now;
-    });
-    if (overdue.length > 0) {
-      insights.push({
-        id: `overdue-pdi-${tech.uid}`,
-        type: 'alert',
-        priority: 'critical',
-        title: 'Metas PDI vencidas',
-        description: `${tech.name} possui ${overdue.length} meta${overdue.length > 1 ? 's' : ''} de desenvolvimento vencida${overdue.length > 1 ? 's' : ''}. Revisar e replanejar com o colaborador é essencial para manutenção do comprometimento.`,
-        technicianName: tech.name,
-        technicianId: tech.uid,
-        metric: `${overdue.length} meta${overdue.length > 1 ? 's' : ''} atrasada${overdue.length > 1 ? 's' : ''}`,
-        action: 'Revisão imediata de PDI',
-        icon: '🎯',
-      });
-    }
-  });
-
-  // --- RULE 4: Rising stars (multiple positive feedbacks this week) ---
-  technicians.forEach(tech => {
-    const weekPositives = feedbacks.filter(fb => {
-      const d = parseDate(fb.createdAt);
-      return fb.technicianId === tech.uid && fb.type === 'positive' && d > sevenDaysAgo;
-    });
-    if (weekPositives.length >= 2) {
-      insights.push({
-        id: `star-${tech.uid}`,
-        type: 'recognition',
-        priority: 'low',
-        title: 'Colaborador em destaque',
-        description: `${tech.name} recebeu ${weekPositives.length} feedbacks positivos esta semana! Considere reconhecimento público e possibilidade de mentoria de pares.`,
-        technicianName: tech.name,
-        technicianId: tech.uid,
-        metric: `${weekPositives.length} ⭐ esta semana`,
-        action: 'Nomear para reconhecimento',
-        icon: '🌟',
-      });
-    }
-  });
-
-  // --- RULE 5: Team-wide training opportunities based on most common development axis ---
-  const devFeedbacks = feedbacks.filter(fb => fb.type === 'development');
-  const axisCounts: Record<string, number> = {};
-  devFeedbacks.forEach(fb => {
-    axisCounts[fb.axis] = (axisCounts[fb.axis] || 0) + 1;
-  });
-  const topAxis = Object.entries(axisCounts).sort((a, b) => b[1] - a[1])[0];
-  if (topAxis && topAxis[1] >= 2) {
-    insights.push({
-      id: 'team-training',
-      type: 'opportunity',
-      priority: 'medium',
-      title: 'Oportunidade de capacitação coletiva',
-      description: `O eixo "${topAxis[0]}" concentra ${topAxis[1]} feedbacks de desenvolvimento da equipe. Um programa de treinamento coletivo pode elevar o desempenho geral em até 35%.`,
-      metric: `${topAxis[1]}x "${topAxis[0]}"`,
-      action: 'Planejar workshop coletivo',
-      icon: '📚',
-    });
-  }
-
-  // --- RULE 6: Positive trend — team with all technicians having positive feedbacks this month ---
-  const techsWithPositive = new Set(
-    feedbacks
-      .filter(fb => {
-        const d = parseDate(fb.createdAt);
-        return fb.type === 'positive' && d > thirtyDaysAgo;
-      })
-      .map(fb => fb.technicianId)
-  );
-  if (technicians.length > 0 && techsWithPositive.size === technicians.length) {
-    insights.push({
-      id: 'full-team-positive',
-      type: 'recognition',
-      priority: 'low',
-      title: 'Equipe 100% reconhecida',
-      description: 'Todos os colaboradores receberam pelo menos um feedback positivo no último mês. Excelente cultura de reconhecimento! Continue assim para manter o índice de retenção acima da média.',
-      metric: `${technicians.length}/${technicians.length} reconhecidos`,
-      action: 'Registrar conquista no relatório',
-      icon: '🏆',
-    });
-  }
-
-  // Sort by priority
-  const priorityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-  return insights.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
-}
-
-function computeTeamHealth(technicians: User[], feedbacks: Feedback[]): TeamHealth {
-  if (technicians.length === 0) {
-    return {
-      overall: 100,
-      feedbackVelocity: 100,
-      pdiCompletionRate: 100,
-      positiveRatio: 100,
-      engagementScore: 100,
-    };
-  }
-
-  const now = new Date();
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const recentFbs = feedbacks.filter(fb => parseDate(fb.createdAt) > thirtyDaysAgo);
-
-  // Feedback velocity: feedbacks per technician per month (target: 2)
-  const velocity = Math.min(100, (recentFbs.length / (technicians.length * 2)) * 100);
-
-  // PDI completion rate
-  let totalGoals = 0, completedGoals = 0;
-  technicians.forEach(t => {
-    (t.structuredPDI || []).forEach(g => {
-      totalGoals++;
-      if (g.status === 'completed') completedGoals++;
-    });
-  });
-  const pdiRate = totalGoals > 0 ? (completedGoals / totalGoals) * 100 : 50;
-
-  // Positive ratio
-  const posCount = recentFbs.filter(fb => fb.type === 'positive').length;
-  const positiveRatio = recentFbs.length > 0 ? (posCount / recentFbs.length) * 100 : 50;
-
-  // Engagement: % of technicians with at least one feedback this month
-  const engagedTechs = new Set(recentFbs.map(fb => fb.technicianId)).size;
-  const engagement = technicians.length > 0 ? (engagedTechs / technicians.length) * 100 : 0;
-
-  // Overall = weighted average
-  const overall = (velocity * 0.3 + pdiRate * 0.25 + positiveRatio * 0.25 + engagement * 0.2);
-
-  return {
-    overall: Math.round(overall),
-    feedbackVelocity: Math.round(velocity),
-    pdiCompletionRate: Math.round(pdiRate),
-    positiveRatio: Math.round(positiveRatio),
-    engagementScore: Math.round(engagement),
-  };
 }
 
 const PRIORITY_COLORS: Record<string, { bg: string; border: string; badge: string; text: string }> = {
@@ -314,11 +101,16 @@ export default function ExecutiveInsights({ technicians, feedbacks }: ExecutiveI
   const insights = useMemo(() => generateInsights(technicians, filteredFeedbacks), [technicians, filteredFeedbacks]);
   const health = useMemo(() => computeTeamHealth(technicians, filteredFeedbacks), [technicians, filteredFeedbacks]);
 
-  useEffect(() => {
+  const generatingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const startGenerating = () => {
     setIsGenerating(true);
-    const t = setTimeout(() => setIsGenerating(false), 800);
-    return () => clearTimeout(t);
-  }, [period]);
+    clearTimeout(generatingTimer.current);
+    generatingTimer.current = setTimeout(() => setIsGenerating(false), 800);
+  };
+  useEffect(() => {
+    generatingTimer.current = setTimeout(() => setIsGenerating(false), 800); // animação inicial
+    return () => clearTimeout(generatingTimer.current);
+  }, []);
 
   const filtered = useMemo(() => {
     return insights
@@ -363,7 +155,7 @@ export default function ExecutiveInsights({ technicians, feedbacks }: ExecutiveI
               </svg>
             </div>
             <h2 className="text-base font-extrabold text-zinc-900 dark:text-white tracking-tight">
-              Insights Executivos IA
+              Insights Executivos (regras automáticas)
             </h2>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
               Motor Local
@@ -375,7 +167,7 @@ export default function ExecutiveInsights({ technicians, feedbacks }: ExecutiveI
             {(['monthly', 'quarterly', 'yearly'] as const).map((p) => (
               <button
                 key={p}
-                onClick={() => setPeriod(p)}
+                onClick={() => { setPeriod(p); startGenerating(); }}
                 className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
                   period === p
                     ? 'bg-white dark:bg-zinc-700 text-[#006c49] dark:text-[#4bdfa1] shadow-sm'
@@ -631,7 +423,7 @@ export default function ExecutiveInsights({ technicians, feedbacks }: ExecutiveI
         transition={{ delay: 0.6 }}
         className="text-center text-[10px] text-zinc-400 dark:text-zinc-600 font-medium"
       >
-        🤖 Motor de IA local • Dados processados exclusivamente no dispositivo • Sem envio externo
+        Sugestões geradas por regras automáticas, processadas no dispositivo (sem envio externo). Apoio à decisão: não substituem a avaliação do gestor.
       </motion.p>
     </div>
   );

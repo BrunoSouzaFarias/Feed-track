@@ -84,15 +84,14 @@ export default function ClimateOverview({ technicians, feedbacks }: ClimateOverv
     return stats;
   }, [filteredAssessments]);
 
-  // Sync collaborator filter with team filter
-  useEffect(() => {
-    if (selectedTeam !== 'Todos' && selectedTechId !== 'Todos') {
-      const isStillInList = technicians.some(t => t.uid === selectedTechId && t.team === selectedTeam);
-      if (!isStillInList) {
-        setSelectedTechId('Todos');
-      }
+  // Ao trocar a equipe, o colaborador selecionado só permanece se pertencer a ela (feito no handler, sem effect).
+  const handleTeamChange = (team: string) => {
+    setSelectedTeam(team);
+    if (team !== 'Todos' && selectedTechId !== 'Todos') {
+      const stillInList = technicians.some(t => t.uid === selectedTechId && t.team === team);
+      if (!stillInList) setSelectedTechId('Todos');
     }
-  }, [selectedTeam, selectedTechId, technicians]);
+  };
 
   const filteredTechsForSelect = useMemo(() => {
     if (selectedTeam === 'Todos') return technicians;
@@ -153,7 +152,7 @@ export default function ClimateOverview({ technicians, feedbacks }: ClimateOverv
           <div>
             <select
               value={selectedTeam}
-              onChange={(e) => setSelectedTeam(e.target.value)}
+              onChange={(e) => handleTeamChange(e.target.value)}
               className="px-3 py-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-transparent text-xs text-zinc-950 dark:text-zinc-50 focus:outline-none focus:ring-1 focus:ring-liberty cursor-pointer font-semibold"
             >
               <option value="Todos">Todos os Times</option>
@@ -312,7 +311,7 @@ export default function ClimateOverview({ technicians, feedbacks }: ClimateOverv
               <svg className="w-4 h-4 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
               </svg>
-              Insights Executivos da IA ({filteredInsights.length})
+              Insights Executivos — regras automáticas ({filteredInsights.length})
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredInsights.map((insight) => {

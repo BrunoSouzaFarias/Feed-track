@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface RadarScores {
@@ -57,7 +57,7 @@ export default function RadarChart({
   }, []);
 
   // Compute point coordinate
-  const getCoordinates = (axisIndex: number, value: number) => {
+  const getCoordinates = useCallback((axisIndex: number, value: number) => {
     const angle = angles[axisIndex];
     // Map value (1 to 5) to radius (0 to r)
     const distance = (value / 5) * r;
@@ -65,7 +65,7 @@ export default function RadarChart({
       x: cx + distance * Math.cos(angle),
       y: cy + distance * Math.sin(angle),
     };
-  };
+  }, [angles, cx, cy, r]);
 
   // Coordinates for labels positioning
   const getLabelCoordinates = (axisIndex: number) => {
@@ -102,7 +102,7 @@ export default function RadarChart({
       const { x, y } = getCoordinates(i, val);
       return `${x},${y}`;
     }).join(' ');
-  }, [selfAssessment, cx, cy, r]);
+  }, [selfAssessment, getCoordinates]);
 
   // Points string for supervisor assessment polygon
   const supervisorPoints = useMemo(() => {
@@ -112,7 +112,7 @@ export default function RadarChart({
       const { x, y } = getCoordinates(i, val);
       return `${x},${y}`;
     }).join(' ');
-  }, [supervisor, cx, cy, r]);
+  }, [supervisor, getCoordinates]);
 
   // Points arrays for rendering interactive circles
   const selfCircles = useMemo(() => {
@@ -122,7 +122,7 @@ export default function RadarChart({
       const { x, y } = getCoordinates(i, val);
       return { label: AXIS_LABELS[key], value: val, x, y };
     });
-  }, [selfAssessment, cx, cy, r]);
+  }, [selfAssessment, getCoordinates]);
 
   const supervisorCircles = useMemo(() => {
     if (!supervisor) return [];
@@ -131,7 +131,7 @@ export default function RadarChart({
       const { x, y } = getCoordinates(i, val);
       return { label: AXIS_LABELS[key], value: val, x, y };
     });
-  }, [supervisor, cx, cy, r]);
+  }, [supervisor, getCoordinates]);
 
   return (
     <motion.div
